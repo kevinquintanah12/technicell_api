@@ -1,5 +1,7 @@
 from sqlalchemy import Column, Integer, String, UniqueConstraint
-from ..database import Base
+#from ..database import Base
+from database import Base
+
 
 class Client(Base):
     __tablename__ = "clients"
