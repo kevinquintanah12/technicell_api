@@ -1,21 +1,29 @@
 from sqlalchemy.orm import Session
-from ..models.client import Client  # <- importar la clase directamente
-from .. import schemas
+from sqlalchemy import select
+from models.client import Cliente  # clase SQLAlchemy correcta
+from schemas import ClientCreate, ClientUpdate  # Pydantic schemas
+from typing import List, Optional
 
-def create_client(db: Session, client: schemas.ClientCreate):
-    db_client = Client(**client.dict())  # <- usar Client directamente
+def create_client(db: Session, client: ClientCreate):
+    db_client = Cliente(**client.dict())
     db.add(db_client)
     db.commit()
     db.refresh(db_client)
     return db_client
 
-def get_clients(db: Session, skip: int = 0, limit: int = 100):
-    return db.query(Client).offset(skip).limit(limit).all()
+# 🔹 Listar clientes con búsqueda flexible
+def get_clients(db: Session, skip: int = 0, limit: int = 100, nombre: Optional[str] = None) -> List[Cliente]:
+    stmt = select(Cliente)
+    if nombre:
+        # Coincidencia parcial, case-insensitive
+        stmt = stmt.where(Cliente.nombre_completo.ilike(f"%{nombre}%"))
+    stmt = stmt.offset(skip).limit(limit)
+    return list(db.execute(stmt).scalars())
 
 def get_client(db: Session, client_id: int):
-    return db.query(Client).filter(Client.id == client_id).first()
+    return db.query(Cliente).filter(Cliente.id == client_id).first()
 
-def update_client(db: Session, client_id: int, update_data: schemas.ClientUpdate):
+def update_client(db: Session, client_id: int, update_data: ClientUpdate):
     client = get_client(db, client_id)
     if client:
         for key, value in update_data.dict(exclude_unset=True).items():
