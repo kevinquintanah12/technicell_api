@@ -9,5 +9,4 @@ reportlab
 qrcode[pil]
 requests
 psycopg2-binary
-passlib
-bcrypt
+passlib[argon2]
