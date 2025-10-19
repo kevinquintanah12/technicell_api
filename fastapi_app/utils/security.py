@@ -5,7 +5,10 @@ from passlib.context import CryptContext
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def get_password_hash(password: str) -> str:
-    """Genera el hash de una contraseña"""
+    """Genera el hash de una contraseña, truncando si excede los 72 bytes"""
+    # Bcrypt solo permite hasta 72 bytes
+    if len(password.encode("utf-8")) > 72:
+        password = password[:72]
     return pwd_context.hash(password)
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
