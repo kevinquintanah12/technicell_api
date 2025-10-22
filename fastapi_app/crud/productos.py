@@ -44,18 +44,33 @@ def get_producto(db: Session, producto_id: int) -> Optional[Producto]:
     Devuelve un producto por su ID, incluyendo su categoría.
     """
     stmt = select(Producto).options(selectinload(Producto.categoria)).where(Producto.id == producto_id)
-    result = db.execute(stmt).scalars().first()
-    return result
+    return db.execute(stmt).scalars().first()
 
 
-def list_productos(db: Session, skip: int = 0, limit: int = 50, categoria_id: Optional[int] = None) -> List[Producto]:
+def list_productos(db: Session, skip: int = 0, limit: int = 50, categoria_id: Optional[int] = None) -> List[dict]:
     """
-    Devuelve una lista de productos incluyendo su categoría.
+    Devuelve una lista de productos incluyendo su categoría (nombre).
     """
     stmt = select(Producto).options(selectinload(Producto.categoria))
     if categoria_id is not None:
         stmt = stmt.where(Producto.categoria_id == categoria_id)
-    return list(db.execute(stmt.offset(skip).limit(limit)).scalars())
+
+    productos = db.execute(stmt.offset(skip).limit(limit)).scalars().all()
+
+    # Convertimos el resultado a una lista de diccionarios incluyendo el nombre de la categoría
+    resultado = []
+    for p in productos:
+        resultado.append({
+            "id": p.id,
+            "nombre": p.nombre,
+            "descripcion": p.descripcion,
+            "codigo": p.codigo,
+            "precio_venta": p.precio_venta,
+            "activo": p.activo,
+            "categoria_id": p.categoria_id,
+            "categoria_nombre": p.categoria.nombre if p.categoria else None
+        })
+    return resultado
 
 
 def update_producto(db: Session, producto_id: int, payload: ProductoUpdate) -> Optional[Producto]:
@@ -118,14 +133,4 @@ def update_inventario(db: Session, producto_id: int, payload: InventarioUpdate) 
     if not db_obj:
         return None
     
-    # Solo actualizamos los valores proporcionados
-    if payload.stock_actual is not None:
-        db_obj.stock_actual = payload.stock_actual
-        db_obj.fecha_ultima_actualizacion = datetime.utcnow()
-    if payload.stock_minimo is not None:
-        db_obj.stock_minimo = payload.stock_minimo
-    
-    db.add(db_obj)
-    db.commit()
-    db.refresh(db_obj)
-    return db_obj
+   
