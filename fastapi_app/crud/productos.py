@@ -1,5 +1,5 @@
 from typing import List, Optional
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select
 from datetime import datetime
 
@@ -21,11 +21,14 @@ def create_categoria(db: Session, payload: CategoriaCreate) -> Categoria:
     db.refresh(db_obj)
     return db_obj
 
+
 def get_categoria(db: Session, categoria_id: int) -> Optional[Categoria]:
     return db.get(Categoria, categoria_id)
 
+
 def list_categorias(db: Session, skip: int = 0, limit: int = 50) -> List[Categoria]:
     return list(db.execute(select(Categoria).offset(skip).limit(limit)).scalars())
+
 
 # --- OPERACIONES CRUD PARA PRODUCTO ---
 def create_producto(db: Session, payload: ProductoCreate) -> Producto:
@@ -35,29 +38,47 @@ def create_producto(db: Session, payload: ProductoCreate) -> Producto:
     db.refresh(db_obj)
     return db_obj
 
+
 def get_producto(db: Session, producto_id: int) -> Optional[Producto]:
-    return db.get(Producto, producto_id)
+    """
+    Devuelve un producto por su ID, incluyendo su categoría.
+    """
+    stmt = select(Producto).options(selectinload(Producto.categoria)).where(Producto.id == producto_id)
+    result = db.execute(stmt).scalars().first()
+    return result
+
 
 def list_productos(db: Session, skip: int = 0, limit: int = 50, categoria_id: Optional[int] = None) -> List[Producto]:
-    stmt = select(Producto)
+    """
+    Devuelve una lista de productos incluyendo su categoría.
+    """
+    stmt = select(Producto).options(selectinload(Producto.categoria))
     if categoria_id is not None:
         stmt = stmt.where(Producto.categoria_id == categoria_id)
     return list(db.execute(stmt.offset(skip).limit(limit)).scalars())
 
+
 def update_producto(db: Session, producto_id: int, payload: ProductoUpdate) -> Optional[Producto]:
+    """
+    Actualiza los datos de un producto existente.
+    """
     db_obj = db.get(Producto, producto_id)
     if not db_obj:
         return None
-    
+
     for key, value in payload.model_dump(exclude_unset=True).items():
         setattr(db_obj, key, value)
-    
+
     db.add(db_obj)
     db.commit()
     db.refresh(db_obj)
     return db_obj
 
+
 def delete_producto(db: Session, producto_id: int) -> bool:
+    """
+    Elimina un producto por su ID.
+    """
     db_obj = db.get(Producto, producto_id)
     if not db_obj:
         return False
@@ -65,9 +86,12 @@ def delete_producto(db: Session, producto_id: int) -> bool:
     db.commit()
     return True
 
+
 # --- OPERACIONES CRUD PARA INVENTARIO ---
 def create_inventario_for_producto(db: Session, producto_id: int, stock_inicial: int = 0) -> Inventario:
-    # Verificamos si el inventario ya existe para este producto
+    """
+    Crea el inventario de un producto específico si aún no existe.
+    """
     existing_inventory = db.get(Inventario, producto_id)
     if existing_inventory:
         raise ValueError("Inventario para este producto ya existe.")
@@ -78,18 +102,26 @@ def create_inventario_for_producto(db: Session, producto_id: int, stock_inicial:
     db.refresh(db_obj)
     return db_obj
 
+
 def get_inventario(db: Session, producto_id: int) -> Optional[Inventario]:
+    """
+    Obtiene el inventario de un producto.
+    """
     return db.query(Inventario).filter(Inventario.producto_id == producto_id).first()
 
+
 def update_inventario(db: Session, producto_id: int, payload: InventarioUpdate) -> Optional[Inventario]:
+    """
+    Actualiza el inventario (stock) de un producto.
+    """
     db_obj = get_inventario(db, producto_id)
     if not db_obj:
         return None
     
-    # Solo actualizamos el stock, no la fecha
+    # Solo actualizamos los valores proporcionados
     if payload.stock_actual is not None:
         db_obj.stock_actual = payload.stock_actual
-        db_obj.fecha_ultima_actualizacion = datetime.utcnow() # Actualizamos el timestamp
+        db_obj.fecha_ultima_actualizacion = datetime.utcnow()
     if payload.stock_minimo is not None:
         db_obj.stock_minimo = payload.stock_minimo
     
