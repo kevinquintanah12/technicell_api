@@ -1,9 +1,12 @@
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from database import get_db
 from crud import productos as crud_productos
-from schemas.productos import ProductoCreate, ProductoUpdate, Producto
+from schemas.productos import ProductoCreate, ProductoUpdate, Producto  # Producto es el schema Pydantic
+
+# Importa el modelo SQLAlchemy con otro nombre para evitar conflicto con el schema Pydantic
+from models.productos import Producto as ProductoModel
 
 # Creamos una instancia de APIRouter
 router = APIRouter(
@@ -23,8 +26,22 @@ def create_producto(producto: ProductoCreate, db: Session = Depends(get_db)):
 def list_productos(skip: int = 0, limit: int = 50, db: Session = Depends(get_db)):
     """
     Obtiene una lista de todos los productos.
+    Además imprime en la consola el nombre de la categoría de cada producto.
     """
-    productos = crud_productos.list_productos(db, skip=skip, limit=limit)
+    # Cargamos la relación categoria para evitar N+1
+    productos = (
+        db.query(ProductoModel)
+        .options(selectinload(ProductoModel.categoria))
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+    # Imprime en consola el nombre de la categoría para cada producto
+    for p in productos:
+        nombre_cat = p.categoria.nombre if p.categoria else "Sin categoría"
+        print(f"Producto: {p.nombre}  —  Categoría: {nombre_cat}")
+
     return productos
 
 @router.get("/{producto_id}", response_model=Producto)
@@ -64,4 +81,5 @@ def delete_producto(producto_id: int, db: Session = Depends(get_db)):
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Producto no encontrado."
         )
+    # Nota: con 204 normalmente no se retorna body, pero dejo el comportamiento como lo tenías:
     return {"message": "Producto eliminado exitosamente."}
