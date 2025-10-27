@@ -5,16 +5,16 @@ from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import or_
 from database import get_db
 from crud import productos as crud_productos
-from schemas.productos import ProductoCreate, ProductoUpdate, Producto  # Producto es el schema Pydantic
-
-# Importa el modelo SQLAlchemy con otro nombre para evitar conflicto con el schema Pydantic
+from schemas.productos import ProductoCreate, ProductoUpdate, Producto
 from models.productos import Producto as ProductoModel
+from models.categoria import Categoria
 
-# Creamos una instancia de APIRouter
+# Creamos una instancia del router
 router = APIRouter(
     prefix="/productos",
     tags=["productos"]
 )
+
 
 @router.post("/", response_model=Producto, status_code=status.HTTP_201_CREATED)
 def create_producto(producto: ProductoCreate, db: Session = Depends(get_db)):
@@ -24,47 +24,52 @@ def create_producto(producto: ProductoCreate, db: Session = Depends(get_db)):
     db_producto = crud_productos.create_producto(db=db, payload=producto)
     return db_producto
 
+
 @router.get("/", response_model=List[Producto])
 def list_productos(
     skip: int = 0,
     limit: int = 50,
-    categoria_id: Optional[int] = Query(None, description="Filtrar por categoria_id"),
+    categoria_id: Optional[int] = Query(None, description="Filtrar por ID de categoría"),
     categoria_nombre: Optional[str] = Query(None, description="Filtrar por nombre de categoría"),
-    q: Optional[str] = Query(None, description="Término de búsqueda (nombre, descripción, código)"),
+    q: Optional[str] = Query(None, description="Término de búsqueda (nombre, descripción o código de producto)"),
     db: Session = Depends(get_db),
 ):
     """
-    Obtiene una lista de productos.
-    Opcionalmente se puede filtrar por categoria_id, categoria_nombre y buscar con `q`.
+    Lista los productos con soporte para filtros:
+    - Filtrar por categoría (ID o nombre)
+    - Buscar texto parcial (nombre, descripción o código)
     """
-    # Base query con carga de relación categoria para evitar N+1
+    # Carga la relación con categoría para evitar múltiples consultas (N+1)
     query = db.query(ProductoModel).options(selectinload(ProductoModel.categoria))
 
-    # Filtros de categoría
+    # Filtrar por ID de categoría
     if categoria_id is not None:
         query = query.filter(ProductoModel.categoria_id == categoria_id)
-    elif categoria_nombre:
-        # Filtra usando la relación Categoria (SQLAlchemy `has`)
-        query = query.filter(ProductoModel.categoria.has(nombre == categoria_nombre) if False else ProductoModel.categoria.has(nombre=categoria_nombre))
 
-    # Búsqueda por texto (nombre, descripcion, codigo) - case-insensitive
+    # Filtrar por nombre de categoría
+    if categoria_nombre:
+        query = query.join(ProductoModel.categoria).filter(Categoria.nombre.ilike(f"%{categoria_nombre}%"))
+
+    # Filtro de búsqueda general
     if q:
         term = f"%{q}%"
         query = query.filter(
             or_(
                 ProductoModel.nombre.ilike(term),
                 ProductoModel.descripcion.ilike(term),
-                ProductoModel.codigo.ilike(term),
+                ProductoModel.codigo.ilike(term)
             )
         )
 
+    # Paginación
     productos = query.offset(skip).limit(limit).all()
     return productos
+
 
 @router.get("/{producto_id}", response_model=Producto)
 def get_producto(producto_id: int, db: Session = Depends(get_db)):
     """
-    Obtiene un producto por su ID.
+    Obtiene un producto específico por su ID.
     """
     db_producto = crud_productos.get_producto(db, producto_id=producto_id)
     if not db_producto:
@@ -74,10 +79,11 @@ def get_producto(producto_id: int, db: Session = Depends(get_db)):
         )
     return db_producto
 
+
 @router.put("/{producto_id}", response_model=Producto)
 def update_producto(producto_id: int, payload: ProductoUpdate, db: Session = Depends(get_db)):
     """
-    Actualiza un producto existente por su ID.
+    Actualiza un producto existente.
     """
     db_producto = crud_productos.update_producto(db, producto_id=producto_id, payload=payload)
     if not db_producto:
@@ -86,6 +92,7 @@ def update_producto(producto_id: int, payload: ProductoUpdate, db: Session = Dep
             detail="Producto no encontrado."
         )
     return db_producto
+
 
 @router.delete("/{producto_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_producto(producto_id: int, db: Session = Depends(get_db)):
@@ -98,5 +105,5 @@ def delete_producto(producto_id: int, db: Session = Depends(get_db)):
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Producto no encontrado."
         )
-    # Nota: con 204 normalmente no se retorna body, pero dejo el comportamiento como lo tenías:
+    # Por convención, 204 no incluye cuerpo en la respuesta
     return {"message": "Producto eliminado exitosamente."}
