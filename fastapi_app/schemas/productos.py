@@ -37,9 +37,12 @@ class ProductoUpdate(ProductoBase):
 
 class Producto(ProductoBase):
     id: int
+    # agregamos la relación para que la respuesta incluya el objeto categoria
+    categoria: Optional[Categoria] = None
+
     class Config:
         orm_mode = True
-        
+
 class InventarioBase(BaseModel):
     stock_actual: int
     stock_minimo: int

@@ -1,3 +1,4 @@
+# routers/productos.py
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, selectinload
@@ -26,7 +27,7 @@ def create_producto(producto: ProductoCreate, db: Session = Depends(get_db)):
 def list_productos(skip: int = 0, limit: int = 50, db: Session = Depends(get_db)):
     """
     Obtiene una lista de todos los productos.
-    Además imprime en la consola el nombre de la categoría de cada producto.
+    La respuesta incluirá además el objeto 'categoria' con su 'nombre'.
     """
     # Cargamos la relación categoria para evitar N+1
     productos = (
@@ -36,11 +37,6 @@ def list_productos(skip: int = 0, limit: int = 50, db: Session = Depends(get_db)
         .limit(limit)
         .all()
     )
-
-    # Imprime en consola el nombre de la categoría para cada producto
-    for p in productos:
-        nombre_cat = p.categoria.nombre if p.categoria else "Sin categoría"
-        print(f"Producto: {p.nombre}  —  Categoría: {nombre_cat}")
 
     return productos
 
