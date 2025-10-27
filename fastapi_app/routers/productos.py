@@ -1,7 +1,8 @@
 # routers/productos.py
-from typing import List
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import List, Optional
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import or_
 from database import get_db
 from crud import productos as crud_productos
 from schemas.productos import ProductoCreate, ProductoUpdate, Producto  # Producto es el schema Pydantic
@@ -24,20 +25,40 @@ def create_producto(producto: ProductoCreate, db: Session = Depends(get_db)):
     return db_producto
 
 @router.get("/", response_model=List[Producto])
-def list_productos(skip: int = 0, limit: int = 50, db: Session = Depends(get_db)):
+def list_productos(
+    skip: int = 0,
+    limit: int = 50,
+    categoria_id: Optional[int] = Query(None, description="Filtrar por categoria_id"),
+    categoria_nombre: Optional[str] = Query(None, description="Filtrar por nombre de categoría"),
+    q: Optional[str] = Query(None, description="Término de búsqueda (nombre, descripción, código)"),
+    db: Session = Depends(get_db),
+):
     """
-    Obtiene una lista de todos los productos.
-    La respuesta incluirá además el objeto 'categoria' con su 'nombre'.
+    Obtiene una lista de productos.
+    Opcionalmente se puede filtrar por categoria_id, categoria_nombre y buscar con `q`.
     """
-    # Cargamos la relación categoria para evitar N+1
-    productos = (
-        db.query(ProductoModel)
-        .options(selectinload(ProductoModel.categoria))
-        .offset(skip)
-        .limit(limit)
-        .all()
-    )
+    # Base query con carga de relación categoria para evitar N+1
+    query = db.query(ProductoModel).options(selectinload(ProductoModel.categoria))
 
+    # Filtros de categoría
+    if categoria_id is not None:
+        query = query.filter(ProductoModel.categoria_id == categoria_id)
+    elif categoria_nombre:
+        # Filtra usando la relación Categoria (SQLAlchemy `has`)
+        query = query.filter(ProductoModel.categoria.has(nombre == categoria_nombre) if False else ProductoModel.categoria.has(nombre=categoria_nombre))
+
+    # Búsqueda por texto (nombre, descripcion, codigo) - case-insensitive
+    if q:
+        term = f"%{q}%"
+        query = query.filter(
+            or_(
+                ProductoModel.nombre.ilike(term),
+                ProductoModel.descripcion.ilike(term),
+                ProductoModel.codigo.ilike(term),
+            )
+        )
+
+    productos = query.offset(skip).limit(limit).all()
     return productos
 
 @router.get("/{producto_id}", response_model=Producto)
