@@ -2,7 +2,7 @@ from pydantic import BaseModel, condecimal
 from datetime import datetime
 from typing import Optional, List
 from models.cobros import MetodoPagoEnum
-from schemas.detalle_cobro import DetalleCobroCreate, DetalleCobroOut
+from schemas.detalle_cobro import DetalleCobroCreate, DetalleCobroRead
 
 class CobroBase(BaseModel):
     cliente_id: int
