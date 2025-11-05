@@ -19,6 +19,14 @@ def create_new_user(user: UserCreate, db: Session = Depends(get_db)):
     return crud_user.create_user(db, user)
 
 # -----------------------------
+# Obtener todos los usuarios
+# -----------------------------
+@router.get("/", response_model=list[UserRead])
+def get_all_users(db: Session = Depends(get_db)):
+    users = crud_user.get_users(db)
+    return users
+
+# -----------------------------
 # Schemas para login
 # -----------------------------
 class LoginRequest(BaseModel):
@@ -44,11 +52,11 @@ def login(user: LoginRequest, db: Session = Depends(get_db)):
     if not verify_password(user.password, db_user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     
-    # ✅ Login exitoso, devolvemos info del usuario
+    # ✅ Login exitoso
     return LoginResponse(
         id=db_user.id,
         username=db_user.username,
         email=db_user.email,
-        role=db_user.role.value,  # si es enum
+        role=db_user.role.value if hasattr(db_user.role, "value") else db_user.role,
         is_active=db_user.is_active
     )
