@@ -23,7 +23,7 @@ class CobroOut(CobroBase):
     id: int
     saldo_pendiente: float
     fecha_pago: datetime
-    detalles: List[DetalleCobroOut] = []  # ← Productos asociados
+    detalles: List[DetalleCobroRead] = []  # ← Productos asociados
 
     class Config:
         orm_mode = True
