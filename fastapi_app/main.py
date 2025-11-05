@@ -27,7 +27,7 @@ from models.historial_reparaciones import HistorialReparacion
 from models.cobros import Cobro
 from models.productos import Producto
 from models.user import User
-from models.detalleCobro import DetalleCobro 
+from fastapi_app.models.detalle_cobro import DetalleCobro 
 
 # 🔹 Configurar base de datos con variable de entorno
 DATABASE_URL = os.getenv("DATABASE_URL")  # Debe estar configurada en Render/Aiven
