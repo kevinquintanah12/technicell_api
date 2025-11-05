@@ -1,7 +1,8 @@
 from pydantic import BaseModel, condecimal
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 from models.cobros import MetodoPagoEnum
+from schemas.detalle_cobro import DetalleCobroCreate, DetalleCobroOut
 
 class CobroBase(BaseModel):
     cliente_id: int
@@ -11,7 +12,7 @@ class CobroBase(BaseModel):
     metodo_pago: MetodoPagoEnum
 
 class CobroCreate(CobroBase):
-    pass
+    detalles: List[DetalleCobroCreate]  # ← Productos del cobro
 
 class CobroUpdate(BaseModel):
     anticipo: Optional[condecimal(decimal_places=2, ge=0)]
@@ -22,6 +23,7 @@ class CobroOut(CobroBase):
     id: int
     saldo_pendiente: float
     fecha_pago: datetime
+    detalles: List[DetalleCobroOut] = []  # ← Productos asociados
 
     class Config:
         orm_mode = True

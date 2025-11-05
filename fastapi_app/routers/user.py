@@ -21,7 +21,7 @@ def create_new_user(user: UserCreate, db: Session = Depends(get_db)):
 # -----------------------------
 # Obtener todos los usuarios
 # -----------------------------
-@router.get("/", response_model=list[UserRead])
+@router.get("/get", response_model=list[UserRead])
 def get_all_users(db: Session = Depends(get_db)):
     users = crud_user.get_users(db)
     return users

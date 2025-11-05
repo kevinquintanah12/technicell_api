@@ -17,6 +17,7 @@ class Producto(Base):
 
     # Relaciones
     categoria = relationship("Categoria", back_populates="productos")
-    inventario = relationship(
-        "Inventario", back_populates="producto", uselist=False
-    )
+    inventario = relationship("Inventario", back_populates="producto", uselist=False)
+
+    # Relación con cobros (vía tabla intermedia)
+    detalles_cobro = relationship("DetalleCobro", back_populates="producto")
