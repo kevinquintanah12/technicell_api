@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 from models.detalle_cobro import DetalleCobro
-from models.producto import Producto
+from models.productos import Producto
 from schemas.detalle_cobro import DetalleCobroCreate, DetalleCobroUpdate
 from datetime import datetime
 
