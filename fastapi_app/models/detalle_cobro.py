@@ -9,12 +9,11 @@ class DetalleCobro(Base):
     id = Column(Integer, primary_key=True, index=True)
     cobro_id = Column(Integer, ForeignKey("cobros.id"), nullable=False)
     producto_id = Column(Integer, ForeignKey("productos.id"), nullable=False)
-    producto_nombre = Column(String, nullable=False)  # ✅ Guarda el nombre del producto en el momento del cobro
+    producto_nombre = Column(String, nullable=False)
     cantidad = Column(Integer, nullable=False)
     precio_unitario = Column(Float, nullable=False)
     subtotal = Column(Float, nullable=False)
-    fecha_registro = Column(DateTime, default=datetime.utcnow)  # ✅ Guarda fecha y hora
+    fecha_registro = Column(DateTime, default=datetime.utcnow)
 
-    # Relaciones
     cobro = relationship("Cobro", back_populates="detalles")
     producto = relationship("Producto", back_populates="detalles_cobro")
