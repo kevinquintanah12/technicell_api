@@ -1,6 +1,4 @@
 from pydantic import BaseModel
-from datetime import datetime
-from typing import Optional
 
 class DetalleCobroBase(BaseModel):
     producto_id: int
@@ -9,14 +7,9 @@ class DetalleCobroBase(BaseModel):
 class DetalleCobroCreate(DetalleCobroBase):
     pass
 
-class DetalleCobroRead(BaseModel):
+class DetalleCobro(DetalleCobroBase):
     id: int
-    producto_id: int
-    producto_nombre: Optional[str]
-    precio_unitario: Optional[float]
-    cantidad: int
     subtotal: float
-    fecha_registro: datetime
 
     class Config:
         orm_mode = True
