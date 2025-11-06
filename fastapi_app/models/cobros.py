@@ -4,6 +4,7 @@ from datetime import datetime
 from database import Base
 import enum
 
+
 # -----------------------------
 # Enumerador de métodos de pago
 # -----------------------------
@@ -11,6 +12,7 @@ class MetodoPagoEnum(str, enum.Enum):
     efectivo = "efectivo"
     tarjeta = "tarjeta"
     transferencia = "transferencia"
+
 
 # -----------------------------
 # Modelo principal: Cobro
@@ -30,10 +32,3 @@ class Cobro(Base):
     # Relaciones
     cliente = relationship("Cliente", back_populates="cobros")
     equipo = relationship("Equipo", back_populates="cobros")
-
-    # Relación con los productos (vía tabla intermedia)
-    detalles = relationship(
-        "DetalleCobro",
-        back_populates="cobro",
-        cascade="all, delete-orphan"
-    )
