@@ -11,7 +11,7 @@ def crear_detalle_cobro(db: Session, detalle: DetalleCobroCreate):
         raise Exception("Producto no encontrado")
 
     # Calcular subtotal
-    subtotal = producto.precio_unitario * detalle.cantidad
+    subtotal = producto.precio_venta * detalle.cantidad
 
     # Crear el registro
     db_detalle = DetalleCobro(
@@ -27,7 +27,7 @@ def crear_detalle_cobro(db: Session, detalle: DetalleCobroCreate):
     return {
         "id": db_detalle.id,
         "producto": producto.nombre,
-        "precio_unitario": producto.precio_unitario,
+        "precio_venta": producto.precio_venta,
         "cantidad": db_detalle.cantidad,
         "subtotal": db_detalle.subtotal
     }
@@ -40,7 +40,7 @@ def obtener_detalles_cobro(db: Session):
         resultado.append({
             "id": d.id,
             "producto": producto.nombre if producto else "Desconocido",
-            "precio_unitario": producto.precio_unitario if producto else 0,
+            "precio_venta": producto.precio_venta if producto else 0,
             "cantidad": d.cantidad,
             "subtotal": d.subtotal
         })
