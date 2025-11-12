@@ -1,7 +1,6 @@
 from sqlalchemy import Column, Integer, String, Float, ForeignKey, Boolean
 from sqlalchemy.orm import relationship
 from database import Base
-from models.categoria import Categoria
 
 class Producto(Base):
     __tablename__ = "productos"
@@ -12,12 +11,14 @@ class Producto(Base):
     categoria_id = Column(Integer, ForeignKey("categorias.id"), nullable=False)
     codigo = Column(String, unique=True, nullable=True)
     precio_venta = Column(Float, nullable=False)
+
+    # 🧾 Gestión de inventario
+    stock_actual = Column(Integer, default=0, nullable=False)  # Stock actual del producto
+    stock_minimo = Column(Integer, default=5, nullable=False)   # Nivel mínimo antes de alerta
+
     activo = Column(Boolean, default=True)
     foto_url = Column(String, nullable=True)
 
-    # Relaciones
+    # 🔗 Relaciones
     categoria = relationship("Categoria", back_populates="productos")
-    inventario = relationship("Inventario", back_populates="producto", uselist=False)
-
-    # Relación con cobros (vía tabla intermedia)
     detalles_cobro = relationship("DetalleCobro", back_populates="producto")

@@ -8,11 +8,14 @@ class CategoriaBase(BaseModel):
     nombre: str
     descripcion: Optional[str] = None
 
+
 class CategoriaCreate(CategoriaBase):
     pass
 
+
 class CategoriaUpdate(CategoriaBase):
     pass
+
 
 class Categoria(CategoriaBase):
     id: int
@@ -29,25 +32,35 @@ class ProductoBase(BaseModel):
     descripcion: Optional[str] = None
     codigo: Optional[str] = None
     precio_venta: float
+    stock_actual: int = 0       # ✅ stock actual
+    stock_minimo: int = 5       # ✅ stock mínimo
     activo: bool = True
     categoria_id: int
+
 
 class ProductoCreate(ProductoBase):
     pass
 
-class ProductoUpdate(ProductoBase):
+
+class ProductoUpdate(BaseModel):
     nombre: Optional[str] = None
     descripcion: Optional[str] = None
     codigo: Optional[str] = None
     precio_venta: Optional[float] = None
+    stock_actual: Optional[int] = None
+    stock_minimo: Optional[int] = None
     activo: Optional[bool] = None
     categoria_id: Optional[int] = None
 
-# 💡 Aquí agregamos la relación con DetalleCobro
+
+# -----------------------------------------------------
+# Detalle de Cobro
+# -----------------------------------------------------
 class DetalleCobroBase(BaseModel):
     cobro_id: int
     cantidad: int
     subtotal: float
+
 
 class DetalleCobroOut(DetalleCobroBase):
     id: int
@@ -55,32 +68,14 @@ class DetalleCobroOut(DetalleCobroBase):
     class Config:
         orm_mode = True
 
+
+# -----------------------------------------------------
+# Producto con relaciones (salida completa)
+# -----------------------------------------------------
 class Producto(ProductoBase):
     id: int
     categoria: Optional[Categoria] = None
-    detalles: Optional[List[DetalleCobroOut]] = []  # 👈 Relación agregada
-
-    class Config:
-        orm_mode = True
-
-
-# -----------------------------------------------------
-# Inventario
-# -----------------------------------------------------
-class InventarioBase(BaseModel):
-    stock_actual: int
-    stock_minimo: int
-
-class InventarioCreate(InventarioBase):
-    producto_id: int
-
-class InventarioUpdate(BaseModel):
-    stock_actual: Optional[int] = None
-    stock_minimo: Optional[int] = None
-
-class Inventario(InventarioBase):
-    id: int
-    producto_id: int
+    detalles_cobro: Optional[List[DetalleCobroOut]] = []  # 👈 Renombrado para coincidir con la relación SQLAlchemy
 
     class Config:
         orm_mode = True
