@@ -13,7 +13,6 @@ from routers.equipos import router as equipos_router
 from routers.estados_equipo import router as estados_router
 from routers.historial_reparaciones import router as historial_routers
 from routers.cobros import router as cobros_router
-from routers.inventario import router as inventario_router
 from routers.categorias import router as categorias_router
 from routers.productos import router as producto_router
 from routers.user import router as user_router
@@ -52,7 +51,6 @@ app.include_router(equipos_router, prefix="/equipos")
 app.include_router(estados_router, prefix="/estados")
 app.include_router(historial_routers, prefix="/historial")
 app.include_router(cobros_router, prefix="/cobros")
-app.include_router(inventario_router, prefix="/inventario")
 app.include_router(categorias_router, prefix="/categorias")
 app.include_router(producto_router, prefix="/productos")
 app.include_router(user_router, prefix="/users")
