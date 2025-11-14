@@ -57,7 +57,6 @@ class ProductoUpdate(BaseModel):
 # Detalle de Cobro
 # -----------------------------------------------------
 class DetalleCobroBase(BaseModel):
-    cobro_id: int
     cantidad: int
     subtotal: float
 
