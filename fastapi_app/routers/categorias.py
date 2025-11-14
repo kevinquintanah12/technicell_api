@@ -2,7 +2,11 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from database import get_db
-from crud import productos as crud_productos
+
+# Importar correctamente desde crud.categorias
+from crud import categorias as crud_categorias
+
+# Esquemas correctos desde schemas.productos
 from schemas.productos import Categoria, CategoriaCreate, CategoriaUpdate
 
 router = APIRouter(
@@ -15,21 +19,22 @@ def create_categoria(categoria: CategoriaCreate, db: Session = Depends(get_db)):
     """
     Crea una nueva categoría.
     """
-    return crud_productos.create_categoria(db=db, payload=categoria)
+    return crud_categorias.create_categoria(db=db, payload=categoria)
 
 @router.get("/", response_model=List[Categoria])
 def list_categorias(skip: int = 0, limit: int = 50, db: Session = Depends(get_db)):
     """
     Obtiene una lista de todas las categorías.
     """
-    return crud_productos.list_categorias(db, skip=skip, limit=limit)
+    return crud_categorias.list_categorias(db, skip=skip, limit=limit)
 
 @router.get("/{categoria_id}", response_model=Categoria)
 def get_categoria(categoria_id: int, db: Session = Depends(get_db)):
     """
     Obtiene una categoría por su ID.
     """
-    db_categoria = crud_productos.get_categoria(db, categoria_id=categoria_id)
+    db_categoria = crud_categorias.get_categoria(db, categoria_id=categoria_id)
+    
     if not db_categoria:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -42,10 +47,16 @@ def update_categoria(categoria_id: int, payload: CategoriaUpdate, db: Session = 
     """
     Actualiza una categoría existente.
     """
-    db_categoria = crud_productos.update_categoria(db, categoria_id=categoria_id, payload=payload)
+    db_categoria = crud_categorias.update_categoria(
+        db=db,
+        categoria_id=categoria_id,
+        payload=payload
+    )
+
     if not db_categoria:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Categoría no encontrada."
         )
+    
     return db_categoria
