@@ -1,6 +1,6 @@
 # schemas/equipo.py
 from typing import List, Optional, Literal
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, validator, EmailStr
 
 # Estados permitidos del equipo
 EstadoEquipoLiteral = Literal[
@@ -14,7 +14,11 @@ EstadoEquipoLiteral = Literal[
 
 
 class EquipoBase(BaseModel):
-    cliente_id: int = Field(..., description="ID del cliente asociado")
+    # 🔹 Campos del cliente directamente
+    cliente_nombre: str = Field(..., min_length=1, description="Nombre completo del cliente")
+    cliente_numero: str = Field(..., min_length=8, description="Número telefónico del cliente")
+    cliente_correo: Optional[EmailStr] = Field(None, description="Correo del cliente (opcional)")
+
     marca: Optional[str] = None
     modelo: str = Field(..., min_length=1, description="Modelo del equipo (obligatorio)")
     fallo: str = Field(..., min_length=1, description="Fallo reportado (obligatorio)")
@@ -22,7 +26,7 @@ class EquipoBase(BaseModel):
     clave_bloqueo: Optional[str] = None
     articulos_entregados: List[str] = Field(default_factory=list)
     estado: Optional[EstadoEquipoLiteral] = "recibido"
-    imei: Optional[str] = None  # 🔹 validación en @validator
+    imei: Optional[str] = None
 
     @validator("imei")
     def validar_imei(cls, v):
@@ -40,6 +44,10 @@ class EquipoCreate(EquipoBase):
 
 
 class EquipoUpdate(BaseModel):
+    cliente_nombre: Optional[str] = None
+    cliente_numero: Optional[str] = None
+    cliente_correo: Optional[EmailStr] = None
+
     marca: Optional[str] = None
     modelo: Optional[str] = None
     fallo: Optional[str] = None
@@ -62,7 +70,12 @@ class EquipoUpdate(BaseModel):
 
 class EquipoOut(BaseModel):
     id: int
-    cliente_id: int
+
+    # 🔹 Datos del cliente
+    cliente_nombre: str
+    cliente_numero: str
+    cliente_correo: Optional[str]
+
     marca: Optional[str]
     modelo: str
     fallo: str
@@ -75,4 +88,4 @@ class EquipoOut(BaseModel):
     foto_url: Optional[str] = None
 
     class Config:
-        from_attributes = True  # Pydantic v2
+        from_attributes = True

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, JSON, DateTime, UniqueConstraint
+from sqlalchemy import Column, Integer, String, JSON, DateTime, UniqueConstraint
 from sqlalchemy.orm import relationship
 from database import Base
 from datetime import datetime
@@ -6,10 +6,6 @@ import requests
 
 
 def get_internet_time() -> datetime:
-    """
-    Obtiene la hora actual desde un servidor de internet (worldtimeapi).
-    Si falla, usa UTC local como respaldo.
-    """
     try:
         resp = requests.get("http://worldtimeapi.org/api/timezone/Etc/UTC", timeout=5)
         if resp.status_code == 200:
@@ -24,24 +20,29 @@ class Equipo(Base):
     __tablename__ = "equipos"
 
     id = Column(Integer, primary_key=True, index=True)
-    cliente_id = Column(Integer, ForeignKey("clientes.id", ondelete="CASCADE"), nullable=True)
-    
-    qr_url = Column(String, nullable=True)  # 🔹 Ruta del QR generado automáticamente
-    foto_url = Column(String, nullable=True)  # 🔹 Ruta de la foto del equipo (opcional)
+
+    # 🔹 Datos del cliente directamente en la tabla
+    cliente_nombre = Column(String, nullable=False)
+    cliente_numero = Column(String, nullable=False)
+    cliente_correo = Column(String, nullable=True)
+
+    qr_url = Column(String, nullable=True)
+    foto_url = Column(String, nullable=True)
 
     marca = Column(String, nullable=True)
     modelo = Column(String, nullable=False)
     fallo = Column(String, nullable=False)
     observaciones = Column(String, nullable=True)
     clave_bloqueo = Column(String, nullable=True)
+
     articulos_entregados = Column(JSON, default=[])
-    estado = Column(String, default="recibido")  # Estado inicial
-    imei = Column(String, unique=True, nullable=True)  # Validación: IMEI único
+    estado = Column(String, default="recibido")
+    imei = Column(String, unique=True, nullable=True)
 
     fecha_ingreso = Column(DateTime(timezone=True), default=get_internet_time)
 
-    # Relaciones
-    cliente = relationship("Cliente", back_populates="equipos")
+    # 🔹 Quitar relación anterior
+    # cliente = relationship("Cliente", back_populates="equipos")
 
     historial_estados = relationship(
         "EstadoEquipo", back_populates="equipo", cascade="all, delete-orphan"

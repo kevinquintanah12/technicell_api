@@ -4,13 +4,13 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, status
 from sqlalchemy.orm import Session
-import qrcode  # 👈 librería para generar QR
+import qrcode
 
 from database import SessionLocal, engine, Base
 from schemas.equipo import EquipoCreate, EquipoUpdate, EquipoOut
 from crud import equipos as crud_equipos
 
-# Crear tablas si no usas Alembic
+# Crear tablas
 Base.metadata.create_all(bind=engine)
 
 router = APIRouter(prefix="/equipos", tags=["Equipos"])
@@ -29,6 +29,7 @@ def get_db():
     finally:
         db.close()
 
+
 # 🔹 Crear equipo con QR automático
 @router.post("/", response_model=EquipoOut, status_code=status.HTTP_201_CREATED)
 def crear_equipo(payload: EquipoCreate, db: Session = Depends(get_db)):
@@ -37,19 +38,16 @@ def crear_equipo(payload: EquipoCreate, db: Session = Depends(get_db)):
     if not equipo:
         raise HTTPException(status_code=400, detail="No se pudo crear el equipo")
 
-    # ✅ Generar QR con el ID del equipo
-    qr_data = str(equipo.id)  # 👈 Solo guardamos el ID para luego consultar el API
+    # Generar QR con el ID del equipo
+    qr_data = str(equipo.id)
     qr_img = qrcode.make(qr_data)
 
-    # Guardar QR en archivo
     qr_filename = f"{uuid.uuid4().hex}.png"
     qr_path = QR_DIR / qr_filename
     qr_img.save(qr_path)
 
-    # Ruta pública (para servir la imagen QR)
     qr_url = f"/static/qrs/equipos/{qr_filename}"
 
-    # Guardar QR en DB (tu modelo Equipo debe tener campo `qr_url`)
     equipo = crud_equipos.set_equipo_qr(db, equipo.id, qr_url)
 
     return equipo
@@ -58,17 +56,21 @@ def crear_equipo(payload: EquipoCreate, db: Session = Depends(get_db)):
 # 🔹 Listar equipos con filtros opcionales y búsqueda por nombre
 @router.get("/", response_model=List[EquipoOut])
 def listar_equipos(
-    cliente_id: Optional[int] = Query(None),
     nombre_cliente: Optional[str] = Query(None, description="Buscar por nombre de cliente"),
-    estado: Optional[str] = Query(None, description="Estado del equipo para filtrar"),
+    estado: Optional[str] = Query(None, description="Estado del equipo"),
     skip: int = 0,
     limit: int = 50,
     db: Session = Depends(get_db),
 ):
     if nombre_cliente:
         return crud_equipos.get_equipos_by_cliente_nombre(db, nombre_cliente)
+
     return crud_equipos.list_equipos(
-        db, skip=skip, limit=limit, cliente_id=cliente_id, estado=estado
+        db,
+        skip=skip,
+        limit=limit,
+        cliente_nombre=nombre_cliente,
+        estado=estado,
     )
 
 
@@ -90,10 +92,8 @@ def actualizar_equipo(equipo_id: int, payload: EquipoUpdate, db: Session = Depen
     return obj
 
 
-# 🔹 Obtener todos los equipos de un cliente
-@router.get("/cliente/{cliente_id}", response_model=List[EquipoOut])
-def equipos_por_cliente(cliente_id: int, db: Session = Depends(get_db)):
-    return crud_equipos.get_equipos_by_cliente(db, cliente_id)
+# ❌ ELIMINADO – ya no existe relación con tabla Cliente
+# @router.get("/cliente/{cliente_id}")
 
 
 # 🔹 Eliminar equipo
@@ -112,32 +112,29 @@ async def subir_foto_equipo(
     file: UploadFile = File(..., description="Imagen del equipo en recepción"),
     db: Session = Depends(get_db),
 ):
-    # Validar tipo MIME
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="El archivo debe ser una imagen")
 
-    # Extensión
     suffix = Path(file.filename).suffix.lower() if file.filename else ""
     if suffix not in {".jpg", ".jpeg", ".png", ".webp"}:
-        raise HTTPException(status_code=400, detail="Formato inválido. Usa JPG, PNG o WEBP")
+        raise HTTPException(
+            status_code=400,
+            detail="Formato inválido. Usa JPG, PNG o WEBP"
+        )
 
-    # Nombre único
-    out_name = f"{uuid.uuid4().hex}{suffix}"
-    out_path = UPLOAD_DIR / out_name
+    filename = f"{uuid.uuid4().hex}{suffix}"
+    out_path = UPLOAD_DIR / filename
 
-    # Guardar archivo
     with open(out_path, "wb") as f:
         f.write(await file.read())
 
-    # URL pública
-    foto_url = f"/static/uploads/equipos/{out_name}"
+    foto_url = f"/static/uploads/equipos/{filename}"
 
     obj = crud_equipos.set_equipo_foto(db, equipo_id, foto_url)
     if not obj:
-        # Limpiar archivo si el equipo no existe
         try:
             out_path.unlink(missing_ok=True)
-        except Exception:
+        except:
             pass
         raise HTTPException(status_code=404, detail="Equipo no encontrado")
 
