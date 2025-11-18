@@ -24,7 +24,7 @@ class Equipo(Base):
     __tablename__ = "equipos"
 
     id = Column(Integer, primary_key=True, index=True)
-    cliente_id = Column(Integer, ForeignKey("clientes.id", ondelete="CASCADE"), nullable=False)
+    cliente_id = Column(Integer, ForeignKey("clientes.id", ondelete="CASCADE"), nullable=True)
     
     qr_url = Column(String, nullable=True)  # 🔹 Ruta del QR generado automáticamente
     foto_url = Column(String, nullable=True)  # 🔹 Ruta de la foto del equipo (opcional)
