@@ -11,16 +11,16 @@ class Cliente(Base):
     telefono = Column(String, unique=True, nullable=False)
     correo = Column(String, nullable=True)
 
-    # 🔹 Evitamos IMEIs duplicados por cliente (si IMEI está en la tabla equipos)
     __table_args__ = (
         UniqueConstraint('telefono', name='uq_cliente_telefono'),
     )
 
-    equipos = relationship(
-        "Equipo",
-        back_populates="cliente",
-        cascade="all, delete-orphan"
-    )
+    # ❌ ESTA RELACIÓN PROVOCABA EL ERROR
+    # equipos = relationship(
+    #     "Equipo",
+    #     back_populates="cliente",
+    #     cascade="all, delete-orphan"
+    # )
 
+    # Si Cobro sí necesita FK a Cliente, esta relación la dejamos
     cobros = relationship("Cobro", back_populates="cliente")
-
