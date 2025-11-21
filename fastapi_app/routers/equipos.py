@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from database import SessionLocal, engine, Base
 from schemas.equipo import EquipoCreate, EquipoUpdate, EquipoOut
-from crud import equipo as crud_equipos
+from crud import equipos as crud_equipos
 
 # Crear tablas (si no las creaste en otro lugar)
 Base.metadata.create_all(bind=engine)
