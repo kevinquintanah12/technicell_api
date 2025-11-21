@@ -33,8 +33,9 @@ def create_equipo(db: Session, payload: EquipoCreate) -> Equipo:
     # 2) Validar estado
     estado = payload.estado if payload.estado in VALID_ESTADOS else "recibido"
 
-    # 3) Crear equipo
+    # 3) Crear equipo con cliente_id obligatorio
     db_equipo = Equipo(
+        cliente_id=cliente.id,  # 🔥 CORRECCIÓN IMPORTANTE
         cliente_nombre=cliente.nombre_completo,
         cliente_numero=cliente.telefono,
         cliente_correo=cliente.correo,
@@ -47,7 +48,7 @@ def create_equipo(db: Session, payload: EquipoCreate) -> Equipo:
         articulos_entregados=payload.articulos_entregados or [],
         estado=estado,
         imei=payload.imei,
-        fecha_ingreso=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        fecha_ingreso=datetime.now()  # ✔ usa datetime real
     )
 
     db.add(db_equipo)

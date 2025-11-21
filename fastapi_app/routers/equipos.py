@@ -21,7 +21,6 @@ QR_DIR = Path("static/qrs/equipos")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 QR_DIR.mkdir(parents=True, exist_ok=True)
 
-
 # Dependencia DB
 def get_db():
     db = SessionLocal()
@@ -31,9 +30,16 @@ def get_db():
         db.close()
 
 
-# 🔹 Crear equipo con QR automático
+# =====================================================
+# 🚀 CREAR EQUIPO (con cliente automático si no mandas cliente_id)
+# =====================================================
 @router.post("/", response_model=EquipoOut, status_code=status.HTTP_201_CREATED)
 def crear_equipo(payload: EquipoCreate, db: Session = Depends(get_db)):
+
+    # 🔥 Aquí ocurre la magia:
+    # create_equipo() revisa:
+    #  - Si viene cliente_id → lo usa
+    #  - Si NO viene → crea el cliente automáticamente
     equipo = crud_equipos.create_equipo(db, payload)
 
     if not equipo:
@@ -54,7 +60,9 @@ def crear_equipo(payload: EquipoCreate, db: Session = Depends(get_db)):
     return equipo
 
 
-# 🔹 Listar equipos con búsqueda y filtros
+# =====================================================
+# 🔍 LISTAR EQUIPOS
+# =====================================================
 @router.get("/", response_model=List[EquipoOut])
 def listar_equipos(
     nombre_cliente: Optional[str] = Query(None, description="Buscar por nombre de cliente"),
@@ -75,7 +83,9 @@ def listar_equipos(
     )
 
 
-# 🔹 Obtener equipo por ID
+# =====================================================
+# 🔍 OBTENER EQUIPO POR ID
+# =====================================================
 @router.get("/{equipo_id}", response_model=EquipoOut)
 def obtener_equipo(equipo_id: int, db: Session = Depends(get_db)):
     obj = crud_equipos.get_equipo(db, equipo_id)
@@ -84,7 +94,9 @@ def obtener_equipo(equipo_id: int, db: Session = Depends(get_db)):
     return obj
 
 
-# 🔹 Actualizar equipo
+# =====================================================
+# ✏️ ACTUALIZAR EQUIPO
+# =====================================================
 @router.patch("/{equipo_id}", response_model=EquipoOut)
 def actualizar_equipo(equipo_id: int, payload: EquipoUpdate, db: Session = Depends(get_db)):
     obj = crud_equipos.update_equipo(db, equipo_id, payload)
@@ -93,7 +105,9 @@ def actualizar_equipo(equipo_id: int, payload: EquipoUpdate, db: Session = Depen
     return obj
 
 
-# 🔹 Eliminar equipo
+# =====================================================
+# 🗑️ ELIMINAR EQUIPO
+# =====================================================
 @router.delete("/{equipo_id}", status_code=status.HTTP_204_NO_CONTENT)
 def eliminar_equipo(equipo_id: int, db: Session = Depends(get_db)):
     ok = crud_equipos.delete_equipo(db, equipo_id)
@@ -102,7 +116,9 @@ def eliminar_equipo(equipo_id: int, db: Session = Depends(get_db)):
     return None
 
 
-# 🔹 Subir foto del equipo
+# =====================================================
+# 📸 SUBIR FOTO DEL EQUIPO
+# =====================================================
 @router.post("/{equipo_id}/foto", response_model=EquipoOut)
 async def subir_foto_equipo(
     equipo_id: int,
@@ -114,8 +130,10 @@ async def subir_foto_equipo(
 
     suffix = Path(file.filename).suffix.lower() if file.filename else ""
     if suffix not in {".jpg", ".jpeg", ".png", ".webp"}:
-        raise HTTPException(status_code=400,
-                            detail="Formato inválido. Usa JPG, PNG o WEBP")
+        raise HTTPException(
+            status_code=400,
+            detail="Formato inválido. Usa JPG, PNG o WEBP"
+        )
 
     filename = f"{uuid.uuid4().hex}{suffix}"
     out_path = UPLOAD_DIR / filename
