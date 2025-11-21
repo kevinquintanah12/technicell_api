@@ -3,8 +3,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select
 from typing import List, Optional
 
-from models.cliente import Cliente
-from schemas.cliente import ClientCreate, ClientUpdate
+from models.client import Cliente
+from schemas.client import ClientCreate, ClientUpdate
 
 
 # ---------------------------------------------------------

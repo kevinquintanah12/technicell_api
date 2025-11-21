@@ -2,14 +2,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from database import SessionLocal
-from crud.cliente import (
+from crud.client import (
     create_client,
     get_clients,
     get_client_by_id,
     update_client,
     delete_client,
 )
-from schemas.cliente import ClientCreate, ClientUpdate, ClientOut
+from schemas.client import ClientCreate, ClientUpdate, ClientOut
 
 router = APIRouter(prefix="/clientes", tags=["Clientes"])
 
