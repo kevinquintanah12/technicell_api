@@ -12,14 +12,14 @@ A5 = (148 * mm, 210 * mm)
 
 
 def _to_detalle_dict(d: Any) -> Dict[str, Any]:
-    detalle = {"producto": None, "cantidad": 1, "precio_unitario": None, "subtotal": None}
+    detalle = {"producto": None, "cantidad": 1, "precio_unitario": 0.0, "subtotal": None}
 
     if isinstance(d, dict):
         detalle["producto"] = d.get("producto") or d.get("producto_nombre") or (
             d.get("producto") and (d.get("producto").get("nombre") if isinstance(d.get("producto"), dict) else None)
         )
         detalle["cantidad"] = d.get("cantidad", detalle["cantidad"])
-        detalle["precio_unitario"] = d.get("precio_unitario") or d.get("precio") or d.get("precio_venta")
+        detalle["precio_unitario"] = d.get("precio_unitario") or d.get("precio") or d.get("precio_venta") or 0.0
         detalle["subtotal"] = d.get("subtotal")
         return detalle
 
@@ -39,9 +39,9 @@ def _to_detalle_dict(d: Any) -> Dict[str, Any]:
         detalle["cantidad"] = detalle["cantidad"]
 
     try:
-        detalle["precio_unitario"] = getattr(d, "precio_unitario", None) or getattr(d, "precio", None) or getattr(d, "precio_venta", None)
+        detalle["precio_unitario"] = getattr(d, "precio_unitario", None) or getattr(d, "precio", None) or getattr(d, "precio_venta", 0.0)
     except Exception:
-        detalle["precio_unitario"] = None
+        detalle["precio_unitario"] = 0.0
 
     try:
         detalle["subtotal"] = getattr(d, "subtotal", None)
@@ -64,7 +64,6 @@ def _get_tickets_dir(path: Optional[str] = "tickets") -> Path:
     Asume que este archivo está en <project>/utils/tickets.py y crea <project>/tickets.
     Ajusta la lógica de parents si tu utils está en otra profundidad.
     """
-    # __file__ está en fastapi_app/utils/tickets.py -> subimos un nivel para llegar a fastapi_app/
     base_dir = Path(__file__).resolve().parent.parent
     tickets_dir = (base_dir / path).resolve()
     tickets_dir.mkdir(parents=True, exist_ok=True)
@@ -187,7 +186,7 @@ def generar_ticket_venta_multiple(
         if subtotal is None:
             subtotal = cantidad * precio_unit
         subtotal = _safe_float(subtotal)
-        producto_nombre = d.get("producto") or "Producto"
+        producto_nombre = d.get("producto") or d.get("producto_nombre") or f"Producto {''}"
 
         try:
             linea = f"{producto_nombre} x{cantidad}  -  ${precio_unit:.2f}"
@@ -217,6 +216,7 @@ def generar_ticket_venta_multiple(
     c.setFont("Helvetica", 11)
     c.drawString(15, y, f"Tipo de pago: {tipo_pago}")
     y -= 14
+    # Mostramos Monto recibido y Cambio siempre (si es 0.0, queda 0.00 en PDF)
     c.drawString(15, y, f"Monto recibido: ${monto_recibido_safe:.2f}")
     y -= 14
     c.drawString(15, y, f"Cambio: ${cambio_safe:.2f}")
