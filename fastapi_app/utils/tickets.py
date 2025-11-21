@@ -71,6 +71,89 @@ def _get_tickets_dir(path: Optional[str] = "tickets") -> Path:
     return tickets_dir
 
 
+def _fit_text(canvas_obj, text: str, max_width: float, fontname: str, fontsize: float) -> str:
+    """
+    Devuelve una versión truncada con '...' si el texto supera max_width.
+    Usa canvas_obj.stringWidth para medir.
+    """
+    if not text:
+        return ""
+    width = canvas_obj.stringWidth(text, fontname, fontsize)
+    if width <= max_width:
+        return text
+    ellipsis = "..."
+    ellipsis_w = canvas_obj.stringWidth(ellipsis, fontname, fontsize)
+    # Binary-ish truncation
+    low, high = 0, len(text)
+    while low < high:
+        mid = (low + high) // 2
+        candidate = text[:mid].rstrip()
+        if canvas_obj.stringWidth(candidate, fontname, fontsize) + ellipsis_w <= max_width:
+            low = mid + 1
+        else:
+            high = mid
+    safe_text = text[:max(0, low - 1)].rstrip()
+    return safe_text + ellipsis
+
+
+def _draw_header(c: canvas.Canvas, ancho: float, alto: float, margin: float, logo_full: Path, company: str, subtitle: str):
+    """
+    Dibuja encabezado con logo centrado y textos centrados debajo.
+    Devuelve la y de inicio del contenido (punto desde donde comienza a listar productos).
+    """
+    y = alto - margin
+
+    # Logo: intentaremos un size relativo (máx 30 mm de alto)
+    max_logo_h = 30 * mm
+    max_logo_w = ancho - 2 * margin
+    logo_present = logo_full.exists()
+    if logo_present:
+        try:
+            # intentamos mantener aspect ratio; usamos reportlab to get image size via PIL if available
+            from PIL import Image
+            with Image.open(str(logo_full)) as im:
+                img_w_px, img_h_px = im.size
+                # ratio in points (pixels -> points is handled roughly by keeping aspect ratio)
+                # compute scale to fit max dimensions
+                ratio = img_w_px / img_h_px if img_h_px != 0 else 1.0
+                logo_h = min(max_logo_h, max_logo_w / ratio)
+                logo_w = logo_h * ratio
+        except Exception:
+            # fallback sizes if PIL no disponible
+            logo_w = min(max_logo_w, 50 * mm)
+            logo_h = min(max_logo_h, 50 * mm)
+        logo_x = (ancho - logo_w) / 2
+        logo_y = y - logo_h
+        try:
+            c.drawImage(str(logo_full), x=logo_x, y=logo_y, width=logo_w, height=logo_h, preserveAspectRatio=True, anchor="c", mask='auto')
+        except Exception:
+            # fallback: intentar dibujar sin preserveAspectRatio
+            try:
+                c.drawImage(str(logo_full), x=logo_x, y=logo_y, width=logo_w, height=logo_h, mask='auto')
+            except Exception:
+                logger.exception("No se pudo dibujar el logo en el ticket (header)")
+
+        y = logo_y - (4 * mm)  # espacio después del logo
+    else:
+        # si no hay logo, dejar espacio pequeño
+        y -= 6 * mm
+
+    # Empresa y subtítulo centrados
+    c.setFont("Helvetica-Bold", 14)
+    c.drawCentredString(ancho / 2, y, company)
+    y -= 6 * mm
+    c.setFont("Helvetica", 9)
+    c.drawCentredString(ancho / 2, y, subtitle)
+    y -= 6 * mm
+
+    # Línea separadora
+    c.setLineWidth(0.5)
+    c.line(margin, y, ancho - margin, y)
+    y -= 6 * mm
+
+    return y
+
+
 def generar_ticket_venta_multiple(
     detalles: List[Any],
     total: float,
@@ -78,7 +161,7 @@ def generar_ticket_venta_multiple(
     monto_recibido: float,
     cambio: float,
     path: str = "tickets",
-    logo_path: str = "static/logo.png"
+    logo_path: str = "static/logogo.png"
 ) -> str:
     """
     Genera un ticket PDF para una venta con varios detalles.
@@ -97,36 +180,37 @@ def generar_ticket_venta_multiple(
 
     ancho, alto = A5
 
-    # Intentamos crear el PDF de forma robusta
+    # medidas y márgenes en mm convertidos a puntos (reportlab ya usa puntos)
+    margin = 10 * mm
+    line_height = 5.5 * mm
+    font_main = "Helvetica"
+    font_bold = "Helvetica-Bold"
+
+    logo_full = Path(__file__).resolve().parent.parent / logo_path
+
     try:
         c = canvas.Canvas(str(nombre_archivo), pagesize=A5)
-        # Logo (opcional)
-        logo_full = Path(__file__).resolve().parent.parent / logo_path
-        if logo_full.exists():
-            try:
-                logo_w = 50
-                logo_h = 50
-                c.drawImage(str(logo_full), x=(ancho - logo_w) / 2, y=alto - 60, width=logo_w, height=logo_h, preserveAspectRatio=True, mask='auto')
-            except Exception:
-                logger.exception("No se pudo dibujar el logo en el ticket")
 
-        # Encabezado
-        c.setFont("Helvetica-Bold", 14)
-        c.drawCentredString(ancho / 2, alto - 70, "🌟 TECHNICELL 🌟")
-        c.setFont("Helvetica", 10)
-        c.drawCentredString(ancho / 2, alto - 85, "Recibo de venta")
-        c.line(10, alto - 90, ancho - 10, alto - 90)
+        # dibujar header (logo + company)
+        company_name = "TECHNICELL"
+        subtitle = "Recibo de venta"
+        y = _draw_header(c, ancho, alto, margin, logo_full, company_name, subtitle)
 
-        fecha_str = datetime.now().strftime("%d/%m/%Y %H:%M")
-        c.setFont("Helvetica", 10)
-        c.drawString(15, alto - 105, f"Fecha: {fecha_str}")
+        # titulos de columnas
+        c.setFont(font_bold, 9)
+        left_x = margin
+        right_x = ancho - margin
+        # Reserve column for qty and price if needed
+        qty_col_w = 18 * mm
+        price_col_w = 30 * mm
+        name_col_w = (ancho - 2 * margin) - qty_col_w - price_col_w - (6 * mm)  # espacio entre columnas
 
-        y = alto - 125
-        c.setFont("Helvetica-Bold", 11)
-        c.drawString(15, y, "Productos:")
-        y -= 14
-        c.setFont("Helvetica", 10)
+        # Dibujar cabecera de tabla de productos
+        c.drawString(left_x, y, "Productos")
+        y -= line_height
+        c.setFont(font_main, 9)
 
+        # iterar productos
         for raw in detalles_list:
             d = _to_detalle_dict(raw)
             cantidad = int(d.get("cantidad") or 1)
@@ -137,49 +221,61 @@ def generar_ticket_venta_multiple(
             subtotal = _safe_float(subtotal)
             producto_nombre = (d.get("producto") or d.get("producto_nombre") or "Producto")
 
-            linea = f"{producto_nombre} x{cantidad}  -  ${precio_unit:.2f}"
-            c.drawString(15, y, linea)
-            c.drawRightString(ancho - 15, y, f"${subtotal:.2f}")
-            y -= 14
+            # Si no cabe, truncar nombre con _fit_text
+            max_name_w = name_col_w
+            display_name = _fit_text(c, producto_nombre, max_name_w, font_main, 9)
 
-            if y < 80:
+            # posición columnas
+            name_x = left_x
+            qty_x = left_x + name_col_w + (3 * mm)
+            price_x = qty_x + qty_col_w + (3 * mm)
+            # Imprimir nombre
+            c.drawString(name_x, y, display_name)
+            # Imprimir cantidad (centrado en su columna aproximada)
+            c.drawCentredString(qty_x + (qty_col_w / 2), y, str(cantidad))
+            # Imprimir subtotal a la derecha
+            c.drawRightString(right_x, y, f"${subtotal:.2f}")
+            y -= line_height
+
+            # salto de página si hace falta
+            if y < margin + 40:  # dejar espacio para footer
                 c.showPage()
-                y = alto - 40
-                c.setFont("Helvetica", 10)
+                # nuevo header en nueva página
+                y = _draw_header(c, ancho, alto, margin, logo_full, company_name, subtitle)
+                c.setFont(font_main, 9)
 
-        y -= 6
-        c.line(10, y, ancho - 10, y)
-        y -= 18
+        # espacio antes de totales
+        y -= (4 * mm)
+        c.setLineWidth(0.5)
+        c.line(margin, y, ancho - margin, y)
+        y -= (6 * mm)
 
-        total_safe = _safe_float(total)
-        monto_recibido_safe = _safe_float(monto_recibido)
-        cambio_safe = _safe_float(cambio)
+        # Totales alineados a la derecha
+        c.setFont(font_bold, 11)
+        c.drawRightString(right_x, y, f"Total: ${_safe_float(total):.2f}")
+        y -= (line_height + 2)
+        c.setFont(font_main, 10)
+        c.drawRightString(right_x, y, f"Tipo de pago: {tipo_pago}")
+        y -= (line_height + 2)
+        c.drawRightString(right_x, y, f"Monto recibido: ${_safe_float(monto_recibido):.2f}")
+        y -= (line_height + 2)
+        c.drawRightString(right_x, y, f"Cambio: ${_safe_float(cambio):.2f}")
+        y -= (line_height + 4)
 
-        c.setFont("Helvetica-Bold", 11)
-        c.drawString(15, y, f"Total: ${total_safe:.2f}")
-        y -= 14
-        c.setFont("Helvetica", 11)
-        c.drawString(15, y, f"Tipo de pago: {tipo_pago}")
-        y -= 14
-        c.drawString(15, y, f"Monto recibido: ${monto_recibido_safe:.2f}")
-        y -= 14
-        c.drawString(15, y, f"Cambio: ${cambio_safe:.2f}")
-        y -= 20
-
-        c.line(10, y, ancho - 10, y)
-        y -= 18
-        c.setFont("Helvetica-Bold", 11)
+        # separador final y agradecimiento
+        c.line(margin, y, ancho - margin, y)
+        y -= (6 * mm)
+        c.setFont(font_bold, 10)
         c.drawCentredString(ancho / 2, y, "¡Gracias por su compra!")
-        y -= 12
-        c.setFont("Helvetica-Oblique", 9)
+        y -= (4 * mm)
+        c.setFont("Helvetica-Oblique", 8)
         c.drawCentredString(ancho / 2, y, "Technicell - Soporte y servicio técnico")
 
-        # Asegurarnos de escribir y cerrar el canvas
+        # cerrar y salvar
         c.showPage()
         c.save()
     except Exception as e:
         logger.exception("Error generando PDF del ticket")
-        # Si hay un archivo corrupto, intentar eliminarlo para evitar basura
         try:
             if nombre_archivo.exists() and nombre_archivo.stat().st_size == 0:
                 nombre_archivo.unlink(missing_ok=True)
