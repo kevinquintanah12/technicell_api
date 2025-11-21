@@ -1,6 +1,7 @@
 # schemas/equipo.py
 from typing import List, Optional, Literal
 from pydantic import BaseModel, Field, validator, EmailStr
+from datetime import datetime  # ✅ Import necesario para datetime
 
 
 EstadoEquipoLiteral = Literal[
@@ -38,6 +39,7 @@ class EquipoBase(BaseModel):
 
 
 class EquipoCreate(EquipoBase):
+    """Esquema para creación de equipos"""
     pass
 
 
@@ -81,7 +83,7 @@ class EquipoOut(BaseModel):
     articulos_entregados: List[str]
     estado: EstadoEquipoLiteral
     imei: Optional[str]
-    fecha_ingreso: Optional[str]
+    fecha_ingreso: Optional[datetime]  # ✅ CAMBIO A datetime
     foto_url: Optional[str] = None
 
     class Config:
