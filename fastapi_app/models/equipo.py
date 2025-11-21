@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, JSON, DateTime, UniqueConstraint
+from sqlalchemy import Column, Integer, String, JSON, DateTime, UniqueConstraint, ForeignKey
 from sqlalchemy.orm import relationship
 from database import Base
 from datetime import datetime
@@ -21,10 +21,16 @@ class Equipo(Base):
 
     id = Column(Integer, primary_key=True, index=True)
 
-    # 🔹 Datos del cliente directamente en la tabla
+    # 🔹 FK obligatoria (para que siempre exista un cliente)
+    cliente_id = Column(Integer, ForeignKey("clientes.id"), nullable=False)
+
+    # 🔹 Datos del cliente (copias para mostrar y evitar joins)
     cliente_nombre = Column(String, nullable=False)
     cliente_numero = Column(String, nullable=False)
     cliente_correo = Column(String, nullable=True)
+
+    # Relación padre
+    cliente = relationship("Cliente", back_populates="equipos")
 
     qr_url = Column(String, nullable=True)
     foto_url = Column(String, nullable=True)
@@ -40,9 +46,6 @@ class Equipo(Base):
     imei = Column(String, unique=True, nullable=True)
 
     fecha_ingreso = Column(DateTime(timezone=True), default=get_internet_time)
-
-    # 🔹 Quitar relación anterior
-    # cliente = relationship("Cliente", back_populates="equipos")
 
     historial_estados = relationship(
         "EstadoEquipo", back_populates="equipo", cascade="all, delete-orphan"

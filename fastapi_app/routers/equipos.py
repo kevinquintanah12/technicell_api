@@ -21,6 +21,7 @@ QR_DIR = Path("static/qrs/equipos")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 QR_DIR.mkdir(parents=True, exist_ok=True)
 
+
 # Dependencia DB
 def get_db():
     db = SessionLocal()
@@ -53,7 +54,7 @@ def crear_equipo(payload: EquipoCreate, db: Session = Depends(get_db)):
     return equipo
 
 
-# 🔹 Listar equipos con filtros opcionales y búsqueda por nombre
+# 🔹 Listar equipos con búsqueda y filtros
 @router.get("/", response_model=List[EquipoOut])
 def listar_equipos(
     nombre_cliente: Optional[str] = Query(None, description="Buscar por nombre de cliente"),
@@ -92,10 +93,6 @@ def actualizar_equipo(equipo_id: int, payload: EquipoUpdate, db: Session = Depen
     return obj
 
 
-# ❌ ELIMINADO – ya no existe relación con tabla Cliente
-# @router.get("/cliente/{cliente_id}")
-
-
 # 🔹 Eliminar equipo
 @router.delete("/{equipo_id}", status_code=status.HTTP_204_NO_CONTENT)
 def eliminar_equipo(equipo_id: int, db: Session = Depends(get_db)):
@@ -117,10 +114,8 @@ async def subir_foto_equipo(
 
     suffix = Path(file.filename).suffix.lower() if file.filename else ""
     if suffix not in {".jpg", ".jpeg", ".png", ".webp"}:
-        raise HTTPException(
-            status_code=400,
-            detail="Formato inválido. Usa JPG, PNG o WEBP"
-        )
+        raise HTTPException(status_code=400,
+                            detail="Formato inválido. Usa JPG, PNG o WEBP")
 
     filename = f"{uuid.uuid4().hex}{suffix}"
     out_path = UPLOAD_DIR / filename

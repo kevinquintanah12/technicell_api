@@ -1,21 +1,43 @@
+# crud/equipo.py
 from typing import List, Optional
 from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import select
+
 from models.equipo import Equipo
 from schemas.equipo import EquipoCreate, EquipoUpdate
+from crud.cliente import get_or_create_client
 
-VALID_ESTADOS = ["recibido", "diagnostico", "en_reparacion", "listo", "entregado", "cancelado"]
+VALID_ESTADOS = [
+    "recibido",
+    "diagnostico",
+    "en_reparacion",
+    "listo",
+    "entregado",
+    "cancelado"
+]
 
 
-# 🔹 Crear equipo
+# ---------------------------------------------------------
+# 🔹 Crear equipo (auto crea cliente si no existe)
+# ---------------------------------------------------------
 def create_equipo(db: Session, payload: EquipoCreate) -> Equipo:
+    # 1) Obtener o crear cliente automáticamente
+    cliente = get_or_create_client(
+        db=db,
+        nombre=payload.cliente_nombre,
+        telefono=payload.cliente_numero,
+        correo=payload.cliente_correo
+    )
+
+    # 2) Validar estado
     estado = payload.estado if payload.estado in VALID_ESTADOS else "recibido"
 
-    db_obj = Equipo(
-        cliente_nombre=payload.cliente_nombre,
-        cliente_numero=payload.cliente_numero,
-        cliente_correo=payload.cliente_correo,
+    # 3) Crear equipo
+    db_equipo = Equipo(
+        cliente_nombre=cliente.nombre_completo,
+        cliente_numero=cliente.telefono,
+        cliente_correo=cliente.correo,
 
         marca=payload.marca,
         modelo=payload.modelo,
@@ -24,21 +46,26 @@ def create_equipo(db: Session, payload: EquipoCreate) -> Equipo:
         clave_bloqueo=payload.clave_bloqueo,
         articulos_entregados=payload.articulos_entregados or [],
         estado=estado,
+        imei=payload.imei,
         fecha_ingreso=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     )
 
-    db.add(db_obj)
+    db.add(db_equipo)
     db.commit()
-    db.refresh(db_obj)
-    return db_obj
+    db.refresh(db_equipo)
+    return db_equipo
 
 
+# ---------------------------------------------------------
 # 🔹 Obtener equipo por ID
+# ---------------------------------------------------------
 def get_equipo(db: Session, equipo_id: int) -> Optional[Equipo]:
     return db.get(Equipo, equipo_id)
 
 
+# ---------------------------------------------------------
 # 🔹 Listar equipos con filtros
+# ---------------------------------------------------------
 def list_equipos(
     db: Session,
     skip: int = 0,
@@ -49,96 +76,83 @@ def list_equipos(
 
     stmt = select(Equipo)
 
-    if cliente_nombre is not None:
+    if cliente_nombre:
         stmt = stmt.where(Equipo.cliente_nombre.ilike(f"%{cliente_nombre}%"))
 
-    if estado is not None:
+    if estado:
         if estado in VALID_ESTADOS:
             stmt = stmt.where(Equipo.estado == estado)
         else:
-            stmt = stmt.where(Equipo.id == -1)  # devuelve vacío si el estado no existe
+            stmt = stmt.where(Equipo.id == -1)
 
     stmt = stmt.order_by(Equipo.fecha_ingreso.desc()).offset(skip).limit(limit)
+
     return list(db.execute(stmt).scalars())
 
 
-# ❌ Eliminado porque ya no existe cliente_id
-# def get_equipos_by_cliente(...)
-
-
-# 🔹 Buscar equipos por nombre de cliente
+# ---------------------------------------------------------
+# 🔹 Buscar equipos por nombre del cliente
+# ---------------------------------------------------------
 def get_equipos_by_cliente_nombre(db: Session, nombre: str) -> List[Equipo]:
     stmt = select(Equipo).where(Equipo.cliente_nombre.ilike(f"%{nombre}%"))
     stmt = stmt.order_by(Equipo.fecha_ingreso.desc())
     return list(db.execute(stmt).scalars())
 
 
+# ---------------------------------------------------------
 # 🔹 Actualizar equipo
+# ---------------------------------------------------------
 def update_equipo(db: Session, equipo_id: int, payload: EquipoUpdate) -> Optional[Equipo]:
-    obj = db.get(Equipo, equipo_id)
-    if not obj:
+    equipo = db.get(Equipo, equipo_id)
+    if not equipo:
         return None
 
-    if payload.cliente_nombre is not None:
-        obj.cliente_nombre = payload.cliente_nombre
-    if payload.cliente_numero is not None:
-        obj.cliente_numero = payload.cliente_numero
-    if payload.cliente_correo is not None:
-        obj.cliente_correo = payload.cliente_correo
+    for key, value in payload.dict(exclude_unset=True).items():
+        if key == "estado" and value not in VALID_ESTADOS:
+            continue
+        setattr(equipo, key, value)
 
-    if payload.marca is not None:
-        obj.marca = payload.marca
-    if payload.modelo is not None:
-        obj.modelo = payload.modelo
-    if payload.fallo is not None:
-        obj.fallo = payload.fallo
-    if payload.observaciones is not None:
-        obj.observaciones = payload.observaciones
-    if payload.clave_bloqueo is not None:
-        obj.clave_bloqueo = payload.clave_bloqueo
-    if payload.articulos_entregados is not None:
-        obj.articulos_entregados = payload.articulos_entregados
-    if payload.estado is not None and payload.estado in VALID_ESTADOS:
-        obj.estado = payload.estado
-    if payload.foto_url is not None:
-        obj.foto_url = payload.foto_url
-    if payload.imei is not None:
-        obj.imei = payload.imei
-
-    db.add(obj)
     db.commit()
-    db.refresh(obj)
-    return obj
+    db.refresh(equipo)
+    return equipo
 
 
+# ---------------------------------------------------------
 # 🔹 Eliminar equipo
+# ---------------------------------------------------------
 def delete_equipo(db: Session, equipo_id: int) -> bool:
-    obj = db.get(Equipo, equipo_id)
-    if not obj:
+    equipo = db.get(Equipo, equipo_id)
+    if not equipo:
         return False
-    db.delete(obj)
+
+    db.delete(equipo)
     db.commit()
     return True
 
 
-# 🔹 Guardar URL del QR en el equipo
+# ---------------------------------------------------------
+# 🔹 Guardar URL del QR
+# ---------------------------------------------------------
 def set_equipo_qr(db: Session, equipo_id: int, qr_url: str) -> Optional[Equipo]:
-    obj = db.query(Equipo).filter(Equipo.id == equipo_id).first()
-    if not obj:
+    equipo = db.get(Equipo, equipo_id)
+    if not equipo:
         return None
-    obj.qr_url = qr_url
+
+    equipo.qr_url = qr_url
     db.commit()
-    db.refresh(obj)
-    return obj
+    db.refresh(equipo)
+    return equipo
 
 
-# 🔹 Subir foto del equipo
+# ---------------------------------------------------------
+# 🔹 Guardar foto del equipo
+# ---------------------------------------------------------
 def set_equipo_foto(db: Session, equipo_id: int, foto_url: str) -> Optional[Equipo]:
-    obj = db.get(Equipo, equipo_id)
-    if not obj:
+    equipo = db.get(Equipo, equipo_id)
+    if not equipo:
         return None
-    obj.foto_url = foto_url
-    db.add(obj)
+
+    equipo.foto_url = foto_url
     db.commit()
-    db.refresh(obj)
-    return obj
+    db.refresh(equipo)
+    return equipo

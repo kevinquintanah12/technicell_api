@@ -1,4 +1,3 @@
-# models/cliente.py
 from sqlalchemy import Column, Integer, String, UniqueConstraint
 from sqlalchemy.orm import relationship
 from database import Base
@@ -15,12 +14,12 @@ class Cliente(Base):
         UniqueConstraint('telefono', name='uq_cliente_telefono'),
     )
 
-    # ❌ ESTA RELACIÓN PROVOCABA EL ERROR
-    # equipos = relationship(
-    #     "Equipo",
-    #     back_populates="cliente",
-    #     cascade="all, delete-orphan"
-    # )
+    # Relación correcta con equipos
+    equipos = relationship(
+        "Equipo",
+        back_populates="cliente",
+        cascade="all, delete-orphan"
+    )
 
-    # Si Cobro sí necesita FK a Cliente, esta relación la dejamos
+    # Si Cobro usa cliente_id, mantenemos esto
     cobros = relationship("Cobro", back_populates="cliente")
