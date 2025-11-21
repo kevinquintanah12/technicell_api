@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from models.equipo import Equipo
 from schemas.equipo import EquipoCreate, EquipoUpdate
-from crud.cliente import get_or_create_client
+from crud.client import get_or_create_client
 
 VALID_ESTADOS = [
     "recibido",
