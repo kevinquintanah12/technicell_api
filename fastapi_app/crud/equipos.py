@@ -1,8 +1,8 @@
-# crud/equipo.py
 from typing import List, Optional
 from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import select
+import json
 
 from models.equipo import Equipo
 from schemas.equipo import EquipoCreate, EquipoUpdate
@@ -35,7 +35,7 @@ def create_equipo(db: Session, payload: EquipoCreate) -> Equipo:
 
     # 3) Crear equipo con cliente_id obligatorio
     db_equipo = Equipo(
-        cliente_id=cliente.id,  # 🔥 CORRECCIÓN IMPORTANTE
+        cliente_id=cliente.id,
         cliente_nombre=cliente.nombre_completo,
         cliente_numero=cliente.telefono,
         cliente_correo=cliente.correo,
@@ -48,7 +48,7 @@ def create_equipo(db: Session, payload: EquipoCreate) -> Equipo:
         articulos_entregados=payload.articulos_entregados or [],
         estado=estado,
         imei=payload.imei,
-        fecha_ingreso=datetime.now()  # ✔ usa datetime real
+        fecha_ingreso=datetime.now()
     )
 
     db.add(db_equipo)
@@ -146,7 +146,7 @@ def set_equipo_qr(db: Session, equipo_id: int, qr_url: str) -> Optional[Equipo]:
 
 
 # ---------------------------------------------------------
-# 🔹 Guardar foto del equipo
+# 🔹 Guardar foto del equipo (campo único foto_url)
 # ---------------------------------------------------------
 def set_equipo_foto(db: Session, equipo_id: int, foto_url: str) -> Optional[Equipo]:
     equipo = db.get(Equipo, equipo_id)
@@ -154,6 +154,44 @@ def set_equipo_foto(db: Session, equipo_id: int, foto_url: str) -> Optional[Equi
         return None
 
     equipo.foto_url = foto_url
+    db.commit()
+    db.refresh(equipo)
+    return equipo
+
+
+# ---------------------------------------------------------
+# 🔹 Devuelve el último equipo creado (por id)
+# ---------------------------------------------------------
+def get_last_equipo(db: Session) -> Optional[Equipo]:
+    stmt = select(Equipo).order_by(Equipo.id.desc()).limit(1)
+    result = db.execute(stmt).scalars().first()
+    return result
+
+
+# ---------------------------------------------------------
+# 🔹 Guardar dos fotos (front/back) en foto_url como JSON string
+#    fotos_json debe ser una string JSON: '{"front": "...", "back": "..."}'
+# ---------------------------------------------------------
+def set_equipo_foto_json(db: Session, equipo_id: int, fotos_json: str) -> Optional[Equipo]:
+    equipo = db.get(Equipo, equipo_id)
+    if not equipo:
+        return None
+
+    # Validación ligera: asegurarse que sea JSON válido con front/back
+    try:
+        parsed = json.loads(fotos_json)
+        if not isinstance(parsed, dict):
+            raise ValueError("JSON inválido")
+        # opcional: comprobar keys
+        # if 'front' not in parsed or 'back' not in parsed:
+        #     raise ValueError("Debe contener 'front' y 'back'")
+    except Exception:
+        # Si no es JSON válido, simplemente guardamos la string (fallback)
+        equipo.foto_url = fotos_json
+    else:
+        equipo.foto_url = json.dumps(parsed)  # normalizamos formato
+
+    db.add(equipo)
     db.commit()
     db.refresh(equipo)
     return equipo
