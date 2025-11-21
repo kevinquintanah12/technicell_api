@@ -83,7 +83,8 @@ async def crear_detalles(request: Request, db: Session = Depends(get_db)):
             raise HTTPException(status_code=500, detail="Error verificando ticket en servidor")
 
         base = str(request.base_url).rstrip("/")
-        ticket_url = f"{base}{router.prefix}/ticket/{ticket_name}"
+        ticket_url = f"{base}/detalle-cobro{router.prefix}/ticket/{ticket_name}"
+
 
         # Respuesta con info adicional útil para debug (puedes quitar size/abs_path en prod)
         return {
