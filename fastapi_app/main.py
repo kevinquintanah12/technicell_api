@@ -17,6 +17,7 @@ from routers.categorias import router as categorias_router
 from routers.productos import router as producto_router
 from routers.user import router as user_router
 from routers.detalle_cobro import router as detalle_cobro_router 
+from routers.ingreso_reparaciones import router as ingreso 
 
 # Modelos (para que SQLAlchemy conozca las tablas)
 from models.client import Cliente
@@ -27,6 +28,7 @@ from models.cobros import Cobro
 from models.productos import Producto
 from models.user import User
 from models.detalle_cobro import DetalleCobro 
+from models.ingreso_reparacion import Ingreso 
 
 # 🔹 Configurar base de datos con variable de entorno
 DATABASE_URL = os.getenv("DATABASE_URL")  # Debe estar configurada en Render/Aiven
@@ -55,6 +57,7 @@ app.include_router(categorias_router, prefix="/categorias")
 app.include_router(producto_router, prefix="/productos")
 app.include_router(user_router, prefix="/users")
 app.include_router(detalle_cobro_router , prefix="/detalle-cobro")
+app.include_router(ingreso , prefix="/ingreso")
 
 # 🔹 Endpoint raíz simple
 @app.get("/")
