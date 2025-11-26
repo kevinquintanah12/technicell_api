@@ -28,7 +28,7 @@ from models.cobros import Cobro
 from models.productos import Producto
 from models.user import User
 from models.detalle_cobro import DetalleCobro 
-from models.ingreso_reparacion import Ingreso 
+from models.ingreso_reparacion import IngresoReparacion 
 
 # 🔹 Configurar base de datos con variable de entorno
 DATABASE_URL = os.getenv("DATABASE_URL")  # Debe estar configurada en Render/Aiven
