@@ -1,7 +1,7 @@
 # schemas/equipo.py
 from typing import List, Optional, Literal
 from pydantic import BaseModel, Field, validator, EmailStr
-from datetime import datetime  # ✅ Import necesario para datetime
+from datetime import datetime
 
 
 EstadoEquipoLiteral = Literal[
@@ -30,16 +30,21 @@ class EquipoBase(BaseModel):
 
     @validator("imei")
     def validar_imei(cls, v):
-        if v is not None:
-            if not v.isdigit():
-                raise ValueError("El IMEI debe contener solo números")
-            if len(v) != 15:
-                raise ValueError("El IMEI debe tener exactamente 15 dígitos")
+        # Si IMEI es None o "", NO validar
+        if v is None or v.strip() == "":
+            return None
+
+        # Validación real solo si trae contenido
+        if not v.isdigit():
+            raise ValueError("El IMEI debe contener solo números")
+
+        if len(v) != 15:
+            raise ValueError("El IMEI debe tener exactamente 15 dígitos")
+
         return v
 
 
 class EquipoCreate(EquipoBase):
-    """Esquema para creación de equipos"""
     pass
 
 
@@ -60,11 +65,15 @@ class EquipoUpdate(BaseModel):
 
     @validator("imei")
     def validar_imei(cls, v):
-        if v is not None:
-            if not v.isdigit():
-                raise ValueError("El IMEI debe contener solo números")
-            if len(v) != 15:
-                raise ValueError("El IMEI debe tener exactamente 15 dígitos")
+        if v is None or v.strip() == "":
+            return None
+
+        if not v.isdigit():
+            raise ValueError("El IMEI debe contener solo números")
+
+        if len(v) != 15:
+            raise ValueError("El IMEI debe tener exactamente 15 dígitos")
+
         return v
 
 
@@ -83,7 +92,7 @@ class EquipoOut(BaseModel):
     articulos_entregados: List[str]
     estado: EstadoEquipoLiteral
     imei: Optional[str]
-    fecha_ingreso: Optional[datetime]  # ✅ CAMBIO A datetime
+    fecha_ingreso: Optional[datetime]
     foto_url: Optional[str] = None
 
     class Config:
