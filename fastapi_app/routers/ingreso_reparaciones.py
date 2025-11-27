@@ -136,7 +136,8 @@ async def crear_ingreso_reparacion(request: Request, db: Session = Depends(get_d
 
         ticket_name = os.path.basename(ticket_path)
         base = str(request.base_url).rstrip("/")  # e.g. http://host:8000
-        ticket_url = f"{base}{router.prefix}/ticket/{ticket_name}"
+        ticket_url = f"/ingreso/ingreso_reparacion/ticket/{ticket_name}"
+
 
         # Respuesta
         return {
