@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Text, Float
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
@@ -10,26 +10,27 @@ class IngresoReparacion(Base):
 
     id = Column(Integer, primary_key=True, index=True)
 
-    # Datos del cliente (FK opcional)
+    # Cliente (ID opcional)
     cliente_id = Column(Integer, ForeignKey("clientes.id"), nullable=True)
 
-    # Datos capturados en el ingreso
+    # Datos enviados desde Flutter
     cliente_nombre = Column(String(150), nullable=False)
-    telefono = Column(String(50), nullable=True)
     equipo = Column(String(150), nullable=False)
-    marca = Column(String(150), nullable=True)
     modelo = Column(String(150), nullable=True)
-    falla = Column(Text, nullable=True)
+    imei = Column(String(50), nullable=True)
+
+    falla_reportada = Column(Text, nullable=False)
     observaciones = Column(Text, nullable=True)
 
-    # Información del ingreso
+    # Información de cobro
+    anticipo = Column(Float, nullable=False, default=0)
+    total_estimado = Column(Float, nullable=False)
+    tipo_pago = Column(String(50), nullable=False)
+    monto_recibido = Column(Float, nullable=False)
+
+    # Control
     fecha_ingreso = Column(DateTime, default=datetime.utcnow)
     entregado = Column(Boolean, default=False)
 
-    # Si tomas fotos
-    foto1 = Column(String(255), nullable=True)
-    foto2 = Column(String(255), nullable=True)
-    foto3 = Column(String(255), nullable=True)
-
-    # Relación opcional (solo si quieres leer datos del cliente)
+    # Relación con cliente
     cliente = relationship("Cliente", lazy="joined")
