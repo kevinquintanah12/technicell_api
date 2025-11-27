@@ -14,7 +14,7 @@ class IngresoReparacion(Base):
     cliente_id = Column(Integer, ForeignKey("clientes.id"), nullable=True)
 
     # Datos capturados en el ingreso
-    nombre_cliente = Column(String(150), nullable=False)
+    cliente_nombre = Column(String(150), nullable=False)
     telefono = Column(String(50), nullable=True)
     equipo = Column(String(150), nullable=False)
     marca = Column(String(150), nullable=True)
