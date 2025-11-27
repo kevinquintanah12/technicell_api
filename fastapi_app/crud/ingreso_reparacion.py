@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from models.ingreso_reparacion import Ingreso
+from models.ingreso_reparacion import IngresoReparacion
 
 
 def crear_ingreso(db: Session, data: dict):
