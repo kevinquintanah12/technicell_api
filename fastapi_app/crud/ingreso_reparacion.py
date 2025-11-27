@@ -4,7 +4,7 @@ from models.ingreso_reparacion import IngresoReparacion
 def crear_ingreso(db: Session, data: dict):
     permitido = {
         "cliente_id",
-        "nombre_cliente",
+        "cliente_nombre",
         "telefono",
         "equipo",
         "marca",
