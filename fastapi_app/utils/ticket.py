@@ -10,7 +10,7 @@ import os
 
 logger = logging.getLogger(__name__)
 
-# Reusar A5 si lo tienes definido en utils/tickets.py; si no, definimos A5 simple:
+# A5 (horizontal/vertical) para tickets pequeños
 A5 = (148 * mm, 210 * mm)
 
 
@@ -21,10 +21,17 @@ def _get_tickets_dir(path: Optional[str] = "tickets") -> Path:
     return tickets_dir
 
 
-def _draw_header_simple(c: canvas.Canvas, ancho: float, alto: float, margin: float, logo_full: Path, company: str, subtitle: str) -> float:
+def _draw_header_simple(
+    c: canvas.Canvas,
+    ancho: float,
+    alto: float,
+    margin: float,
+    logo_full: Path,
+    company: str,
+    subtitle: str,
+) -> float:
     """
-    Header simple: logo centrado y textos. Devuelve y inicial del contenido.
-    Si ya tienes _draw_header en utils/tickets.py puedes reemplazar llamando a esa función.
+    Header simple: logo centrado y textos. Devuelve la Y inicial del contenido.
     """
     y = alto - margin
     max_logo_h = 25 * mm
@@ -33,6 +40,7 @@ def _draw_header_simple(c: canvas.Canvas, ancho: float, alto: float, margin: flo
     if logo_present:
         try:
             from PIL import Image
+
             with Image.open(str(logo_full)) as im:
                 img_w_px, img_h_px = im.size
                 ratio = img_w_px / img_h_px if img_h_px != 0 else 1.0
@@ -44,10 +52,19 @@ def _draw_header_simple(c: canvas.Canvas, ancho: float, alto: float, margin: flo
         logo_x = (ancho - logo_w) / 2
         logo_y = y - logo_h
         try:
-            c.drawImage(str(logo_full), x=logo_x, y=logo_y, width=logo_w, height=logo_h, preserveAspectRatio=True, anchor="c", mask='auto')
+            c.drawImage(
+                str(logo_full),
+                x=logo_x,
+                y=logo_y,
+                width=logo_w,
+                height=logo_h,
+                preserveAspectRatio=True,
+                anchor="c",
+                mask="auto",
+            )
         except Exception:
             try:
-                c.drawImage(str(logo_full), x=logo_x, y=logo_y, width=logo_w, height=logo_h, mask='auto')
+                c.drawImage(str(logo_full), x=logo_x, y=logo_y, width=logo_w, height=logo_h, mask="auto")
             except Exception:
                 logger.exception("No se pudo dibujar logo en ticket_reparacion header")
         y = logo_y - (3 * mm)
@@ -67,27 +84,61 @@ def _draw_header_simple(c: canvas.Canvas, ancho: float, alto: float, margin: flo
 
 
 def generar_ticket_ingreso_reparacion(
-    cliente_nombre: str,
-    contacto: Optional[str],
-    articulo: str,
+    cliente_nombre: Optional[str] = None,
+    contacto: Optional[str] = None,
+    articulo: Optional[str] = None,
     modelo: Optional[str] = None,
     serie: Optional[str] = None,
     falla_descripcion: Optional[str] = None,
     observaciones: Optional[str] = None,
+    # campos de cobro/opcionales
+    anticipo: Optional[float] = 0.0,
+    total: Optional[float] = 0.0,
+    tipo_pago: Optional[str] = None,
+    monto_recibido: Optional[float] = 0.0,
+    cambio: Optional[float] = 0.0,
     tipo_ticket: str = "Físico",  # "Físico" o "Electrónico"
     fecha_ingreso: Optional[datetime] = None,
     plazo_estimado: Optional[str] = None,
     path: str = "tickets",
     logo_path: str = "static/logogo.png",
     company_name: str = "TECHNICELL",
+    # Soporta recibir todo el ingreso como dict (por compatibilidad con llamadas antiguas)
+    ingreso: Optional[Dict[str, Any]] = None,
 ) -> str:
     """
     Genera un ticket PDF de ingreso/recepción para reparación.
-    - tipo_ticket: 'Físico' o 'Electrónico'
-    - incluye la cláusula de garantía para ticket electrónico
+    Acepta dos formas:
+      - pasar los parámetros individuales (cliente_nombre, articulo, etc.)
+      - pasar `ingreso` (dict) con keys compatibles:
+            cliente_nombre, contacto/telefono, articulo/equipo, modelo, serie/imei,
+            falla_descripcion/falla, observaciones, anticipo, total, tipo_pago, monto_recibido
     Devuelve la ruta absoluta del PDF generado.
     """
+    # Si se envió `ingreso` como dict, sobreescribimos valores con lo que venga ahí.
+    if ingreso and isinstance(ingreso, dict):
+        # mapping flexible: acepta varios nombres comunes
+        cliente_nombre = cliente_nombre or ingreso.get("cliente_nombre") or ingreso.get("nombre_cliente") or ingreso.get("cliente")
+        contacto = contacto or ingreso.get("telefono") or ingreso.get("contacto")
+        articulo = articulo or ingreso.get("articulo") or ingreso.get("equipo") or ingreso.get("marca")
+        modelo = modelo or ingreso.get("modelo")
+        serie = serie or ingreso.get("imei") or ingreso.get("serie")
+        falla_descripcion = falla_descripcion or ingreso.get("falla") or ingreso.get("falla_reportada") or ingreso.get("problema")
+        observaciones = observaciones or ingreso.get("observaciones")
+        # cobro
+        anticipo = anticipo if anticipo not in (None,) else ingreso.get("anticipo", 0.0)
+        total = total if total not in (None,) else ingreso.get("total_estimado", ingreso.get("total", 0.0))
+        tipo_pago = tipo_pago or ingreso.get("tipo_pago")
+        monto_recibido = monto_recibido if monto_recibido not in (None,) else ingreso.get("monto_recibido", 0.0)
+        cambio = cambio if cambio not in (None,) else ingreso.get("cambio", 0.0)
+        fecha_ingreso = fecha_ingreso or ingreso.get("fecha_ingreso")
+
+    # Valores por defecto mínimos
     fecha_ingreso = fecha_ingreso or datetime.now()
+    cliente_nombre = cliente_nombre or "Cliente"
+    articulo = articulo or "Artículo"
+    falla_descripcion = falla_descripcion or "No especificada"
+
     tickets_dir = _get_tickets_dir(path)
     timestamp = fecha_ingreso.strftime("%Y%m%d_%H%M%S")
     nombre_archivo = tickets_dir / f"ticket_ingreso_reparacion_{timestamp}.pdf"
@@ -105,7 +156,7 @@ def generar_ticket_ingreso_reparacion(
         subtitle = "Recibo de ingreso / Recepción de equipo"
         y = _draw_header_simple(c, ancho, alto, margin, logo_full, company_name, subtitle)
 
-        # Datos del cliente / dispositivo
+        # Cliente / dispositivo
         c.setFont("Helvetica-Bold", 9)
         c.drawString(left_x, y, "Cliente:")
         c.setFont("Helvetica", 9)
@@ -116,38 +167,36 @@ def generar_ticket_ingreso_reparacion(
             c.setFont("Helvetica-Bold", 9)
             c.drawString(left_x, y, "Contacto:")
             c.setFont("Helvetica", 9)
-            c.drawString(left_x + 28 * mm, y, contacto)
+            c.drawString(left_x + 28 * mm, y, f"{contacto}")
             y -= line_h
 
         c.setFont("Helvetica-Bold", 9)
         c.drawString(left_x, y, "Artículo:")
         c.setFont("Helvetica", 9)
-        c.drawString(left_x + 28 * mm, y, articulo)
+        c.drawString(left_x + 28 * mm, y, f"{articulo}")
         y -= line_h
 
         if modelo:
             c.setFont("Helvetica-Bold", 9)
             c.drawString(left_x, y, "Modelo:")
             c.setFont("Helvetica", 9)
-            c.drawString(left_x + 28 * mm, y, modelo)
+            c.drawString(left_x + 28 * mm, y, f"{modelo}")
             y -= line_h
 
         if serie:
             c.setFont("Helvetica-Bold", 9)
             c.drawString(left_x, y, "Serie / IMEI:")
             c.setFont("Helvetica", 9)
-            c.drawString(left_x + 28 * mm, y, serie)
+            c.drawString(left_x + 28 * mm, y, f"{serie}")
             y -= line_h
 
-        # Falla / descripcion
+        # Falla / descripcion (wrap simple)
         c.setFont("Helvetica-Bold", 9)
         c.drawString(left_x, y, "Falla reportada:")
         y -= (line_h - 2 * mm)
         c.setFont("Helvetica", 9)
-        # wrap simple: si la línea es larga, saltar manualmente
         text = c.beginText(left_x, y)
         text.setFont("Helvetica", 9)
-        max_w = (ancho - 2 * margin)
         for ln in _wrap_text(str(falla_descripcion or "No especificada"), 48):
             text.textLine(ln)
             y -= (4.5 * mm)
@@ -168,8 +217,36 @@ def generar_ticket_ingreso_reparacion(
             c.drawText(text_obs)
             y -= (2 * mm)
 
-        # Fecha / tipo de ticket / plazo estimado
+        # Espacio antes de sección cobro/fecha
         y -= (2 * mm)
+
+        # Cobro (si se pasaron datos de cobro, los mostramos)
+        show_cobro = any(x not in (None, 0, 0.0, "") for x in (anticipo, total, tipo_pago, monto_recibido, cambio))
+        if show_cobro:
+            c.setFont("Helvetica-Bold", 9)
+            c.drawString(left_x, y, "Cobro:")
+            y -= (line_h - 2 * mm)
+            c.setFont("Helvetica", 9)
+            if total not in (None, 0, 0.0):
+                c.drawString(left_x + 6 * mm, y, f"Total estimado: ${float(total):.2f}")
+                y -= (line_h - 2 * mm)
+            if anticipo not in (None, 0, 0.0):
+                c.drawString(left_x + 6 * mm, y, f"Anticipo cobrado: ${float(anticipo):.2f}")
+                y -= (line_h - 2 * mm)
+            if tipo_pago:
+                c.drawString(left_x + 6 * mm, y, f"Tipo de pago: {tipo_pago}")
+                y -= (line_h - 2 * mm)
+            if monto_recibido not in (None, 0, 0.0):
+                c.drawString(left_x + 6 * mm, y, f"Monto recibido: ${float(monto_recibido):.2f}")
+                y -= (line_h - 2 * mm)
+            if cambio not in (None, 0, 0.0):
+                c.drawString(left_x + 6 * mm, y, f"Cambio: ${float(cambio):.2f}")
+                y -= (line_h - 2 * mm)
+
+            # pequeña separación
+            y -= (2 * mm)
+
+        # Fecha / tipo de ticket / plazo estimado
         c.setFont("Helvetica-Bold", 9)
         c.drawString(left_x, y, "Fecha ingreso:")
         c.setFont("Helvetica", 9)
@@ -196,7 +273,7 @@ def generar_ticket_ingreso_reparacion(
         c.line(left_x, y, right_x, y)
         y -= (6 * mm)
 
-        # Aviso / cláusula que pediste
+        # Aviso / cláusula
         c.setFont("Helvetica-Bold", 9)
         c.drawCentredString(ancho / 2, y, "IMPORTANTE")
         y -= (5 * mm)
@@ -207,7 +284,6 @@ def generar_ticket_ingreso_reparacion(
             "El tiempo de reparación será tomado en consideración al momento de resolver la incidencia.",
         ]
         for ln in aviso_lines:
-            # centrar y permitir wrap simple
             for sub in _wrap_text(ln, 60):
                 c.drawCentredString(ancho / 2, y, sub)
                 y -= (4.5 * mm)
@@ -220,10 +296,9 @@ def generar_ticket_ingreso_reparacion(
         c.drawString(left_x, y, "Entrega prevista (firma cliente): __________________")
         y -= (10 * mm)
 
-        # Pie: datos contacto o agradecimiento
+        # Pie
         c.setFont("Helvetica-Oblique", 8)
         c.drawCentredString(ancho / 2, margin + (6 * mm), f"{company_name} - Servicio técnico")
-        y -= (4 * mm)
 
         # finaliza
         c.showPage()
@@ -248,7 +323,6 @@ def generar_ticket_ingreso_reparacion(
 def _wrap_text(text: str, max_chars: int):
     """
     Helper muy simple para dividir texto en líneas con max_chars caracteres.
-    Para layouts más robustos usa reportlab.platypus. Aquí sirve para A5.
     """
     if not text:
         return [""]
