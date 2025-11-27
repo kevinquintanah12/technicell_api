@@ -1,36 +1,35 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Text
 from sqlalchemy.orm import relationship
 from datetime import datetime
+
 from database import Base
 
 
 class IngresoReparacion(Base):
-    __tablename__ = "ingresos_reparacion"
+    __tablename__ = "ingreso_reparaciones"
 
     id = Column(Integer, primary_key=True, index=True)
 
-    # Cliente (puede ser texto directo o FK a otra tabla)
+    # Datos del cliente (FK opcional)
     cliente_id = Column(Integer, ForeignKey("clientes.id"), nullable=True)
-    cliente_nombre = Column(String(200), nullable=False)
 
-    # Datos del equipo
-    equipo = Column(String(200), nullable=False)              # Ej: iPhone 13
-    modelo = Column(String(200), nullable=True)               # Ej: A2633
-    imei = Column(String(40), nullable=True)
-    falla_reportada = Column(Text, nullable=False)
+    # Datos capturados en el ingreso
+    nombre_cliente = Column(String(150), nullable=False)
+    telefono = Column(String(50), nullable=True)
+    equipo = Column(String(150), nullable=False)
+    marca = Column(String(150), nullable=True)
+    modelo = Column(String(150), nullable=True)
+    falla = Column(Text, nullable=True)
     observaciones = Column(Text, nullable=True)
 
-    # Datos económicos
-    anticipo = Column(Float, default=0.0)
-    total_estimado = Column(Float, default=0.0)
-    total_final = Column(Float, default=0.0)
-
-    # Estados posibles: "Ingresado", "En Proceso", "Listo", "Entregado"
-    estado = Column(String(50), default="Ingresado")
-
-    # Auditoría
+    # Información del ingreso
     fecha_ingreso = Column(DateTime, default=datetime.utcnow)
-    fecha_actualizacion = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    entregado = Column(Boolean, default=False)
 
-    # Relación opcional hacia cliente
-    cliente = relationship("Cliente", back_populates="reparaciones", lazy="joined")
+    # Si tomas fotos
+    foto1 = Column(String(255), nullable=True)
+    foto2 = Column(String(255), nullable=True)
+    foto3 = Column(String(255), nullable=True)
+
+    # Relación opcional (solo si quieres leer datos del cliente)
+    cliente = relationship("Cliente", lazy="joined")
