@@ -8,21 +8,21 @@ from models.equipo import Equipo
 from schemas.equipo import EquipoCreate, EquipoUpdate
 from crud.client import get_or_create_client
 
+# Estados válidos
 VALID_ESTADOS = [
     "recibido",
     "diagnostico",
     "en_reparacion",
     "listo",
     "entregado",
-    "cancelado"
+    "cancelado",
+    "pendiente"  # 👈 agregado
 ]
 
-
-# ---------------------------------------------------------
-# 🔹 Crear equipo (auto crea cliente si no existe)
-# ---------------------------------------------------------
+# =====================================================
+# 🔹 Crear equipo (crea cliente si no existe)
+# =====================================================
 def create_equipo(db: Session, payload: EquipoCreate) -> Equipo:
-    # 1) Obtener o crear cliente automáticamente
     cliente = get_or_create_client(
         db=db,
         nombre=payload.cliente_nombre,
@@ -30,10 +30,8 @@ def create_equipo(db: Session, payload: EquipoCreate) -> Equipo:
         correo=payload.cliente_correo
     )
 
-    # 2) Validar estado
     estado = payload.estado if payload.estado in VALID_ESTADOS else "recibido"
 
-    # 3) Crear equipo con cliente_id obligatorio
     db_equipo = Equipo(
         cliente_id=cliente.id,
         cliente_nombre=cliente.nombre_completo,
@@ -54,19 +52,20 @@ def create_equipo(db: Session, payload: EquipoCreate) -> Equipo:
     db.add(db_equipo)
     db.commit()
     db.refresh(db_equipo)
+
     return db_equipo
 
 
-# ---------------------------------------------------------
+# =====================================================
 # 🔹 Obtener equipo por ID
-# ---------------------------------------------------------
+# =====================================================
 def get_equipo(db: Session, equipo_id: int) -> Optional[Equipo]:
     return db.get(Equipo, equipo_id)
 
 
-# ---------------------------------------------------------
+# =====================================================
 # 🔹 Listar equipos con filtros
-# ---------------------------------------------------------
+# =====================================================
 def list_equipos(
     db: Session,
     skip: int = 0,
@@ -91,18 +90,18 @@ def list_equipos(
     return list(db.execute(stmt).scalars())
 
 
-# ---------------------------------------------------------
-# 🔹 Buscar equipos por nombre del cliente
-# ---------------------------------------------------------
+# =====================================================
+# 🔹 Buscar por nombre del cliente
+# =====================================================
 def get_equipos_by_cliente_nombre(db: Session, nombre: str) -> List[Equipo]:
     stmt = select(Equipo).where(Equipo.cliente_nombre.ilike(f"%{nombre}%"))
     stmt = stmt.order_by(Equipo.fecha_ingreso.desc())
     return list(db.execute(stmt).scalars())
 
 
-# ---------------------------------------------------------
+# =====================================================
 # 🔹 Actualizar equipo
-# ---------------------------------------------------------
+# =====================================================
 def update_equipo(db: Session, equipo_id: int, payload: EquipoUpdate) -> Optional[Equipo]:
     equipo = db.get(Equipo, equipo_id)
     if not equipo:
@@ -118,9 +117,9 @@ def update_equipo(db: Session, equipo_id: int, payload: EquipoUpdate) -> Optiona
     return equipo
 
 
-# ---------------------------------------------------------
-# 🔹 Eliminar equipo
-# ---------------------------------------------------------
+# =====================================================
+# 🔹 Borrar equipo
+# =====================================================
 def delete_equipo(db: Session, equipo_id: int) -> bool:
     equipo = db.get(Equipo, equipo_id)
     if not equipo:
@@ -131,9 +130,9 @@ def delete_equipo(db: Session, equipo_id: int) -> bool:
     return True
 
 
-# ---------------------------------------------------------
-# 🔹 Guardar URL del QR
-# ---------------------------------------------------------
+# =====================================================
+# 🔹 Guardar QR
+# =====================================================
 def set_equipo_qr(db: Session, equipo_id: int, qr_url: str) -> Optional[Equipo]:
     equipo = db.get(Equipo, equipo_id)
     if not equipo:
@@ -145,9 +144,9 @@ def set_equipo_qr(db: Session, equipo_id: int, qr_url: str) -> Optional[Equipo]:
     return equipo
 
 
-# ---------------------------------------------------------
-# 🔹 Guardar foto del equipo (campo único foto_url)
-# ---------------------------------------------------------
+# =====================================================
+# 🔹 Guardar foto única
+# =====================================================
 def set_equipo_foto(db: Session, equipo_id: int, foto_url: str) -> Optional[Equipo]:
     equipo = db.get(Equipo, equipo_id)
     if not equipo:
@@ -159,39 +158,30 @@ def set_equipo_foto(db: Session, equipo_id: int, foto_url: str) -> Optional[Equi
     return equipo
 
 
-# ---------------------------------------------------------
-# 🔹 Devuelve el último equipo creado (por id)
-# ---------------------------------------------------------
+# =====================================================
+# 🔹 Obtener último equipo creado
+# =====================================================
 def get_last_equipo(db: Session) -> Optional[Equipo]:
     stmt = select(Equipo).order_by(Equipo.id.desc()).limit(1)
-    result = db.execute(stmt).scalars().first()
-    return result
+    return db.execute(stmt).scalars().first()
 
 
-# ---------------------------------------------------------
-# 🔹 Guardar dos fotos (front/back) en foto_url como JSON string
-#    fotos_json debe ser una string JSON: '{"front": "...", "back": "..."}'
-# ---------------------------------------------------------
+# =====================================================
+# 🔹 Guardar JSON con front + back
+# =====================================================
 def set_equipo_foto_json(db: Session, equipo_id: int, fotos_json: str) -> Optional[Equipo]:
     equipo = db.get(Equipo, equipo_id)
     if not equipo:
         return None
 
-    # Validación ligera: asegurarse que sea JSON válido con front/back
     try:
         parsed = json.loads(fotos_json)
         if not isinstance(parsed, dict):
             raise ValueError("JSON inválido")
-        # opcional: comprobar keys
-        # if 'front' not in parsed or 'back' not in parsed:
-        #     raise ValueError("Debe contener 'front' y 'back'")
+        equipo.foto_url = json.dumps(parsed)
     except Exception:
-        # Si no es JSON válido, simplemente guardamos la string (fallback)
         equipo.foto_url = fotos_json
-    else:
-        equipo.foto_url = json.dumps(parsed)  # normalizamos formato
 
-    db.add(equipo)
     db.commit()
     db.refresh(equipo)
     return equipo

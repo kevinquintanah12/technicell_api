@@ -12,7 +12,6 @@ from database import SessionLocal, engine, Base
 from schemas.equipo import EquipoCreate, EquipoUpdate, EquipoOut
 from crud import equipos as crud_equipos
 
-# Crear tablas (si ya lo haces en main.py puedes eliminarlo)
 Base.metadata.create_all(bind=engine)
 
 router = APIRouter(prefix="/equipos", tags=["Equipos"])
@@ -25,7 +24,7 @@ QR_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # =====================================================
-# Dependencia DB
+# DB
 # =====================================================
 def get_db():
     db = SessionLocal()
@@ -35,10 +34,8 @@ def get_db():
         db.close()
 
 
-# Helper para construir URL absoluta desde Request
 def absolute_url(request: Request, relative_path: str) -> str:
     base = str(request.base_url).rstrip("/")
-    # relative_path debe empezar con '/'
     rel = relative_path if relative_path.startswith("/") else f"/{relative_path}"
     return f"{base}{rel}"
 
@@ -52,7 +49,6 @@ def crear_equipo(payload: EquipoCreate, request: Request, db: Session = Depends(
     if not equipo:
         raise HTTPException(status_code=400, detail="No se pudo crear el equipo")
 
-    # Generar QR (contenido: id del equipo)
     qr_filename = f"{uuid.uuid4().hex}.png"
     qr_path = QR_DIR / qr_filename
     qrcode.make(str(equipo.id)).save(qr_path)
@@ -64,7 +60,7 @@ def crear_equipo(payload: EquipoCreate, request: Request, db: Session = Depends(
 
 
 # =====================================================
-# 🔍 LISTAR EQUIPOS (filtrado opcional)
+# 🔍 LISTAR EQUIPOS CON FILTRO
 # =====================================================
 @router.get("/", response_model=List[EquipoOut])
 def listar_equipos(
@@ -87,16 +83,18 @@ def listar_equipos(
 
 
 # =====================================================
-# 🔍 LISTAR PENDIENTES / REPARADOS / ENTREGADOS
+# 🔍 LISTAS ESPECÍFICAS (PENDIENTES / REPARACIÓN / ENTREGADOS)
 # =====================================================
 @router.get("/pendientes", response_model=List[EquipoOut])
 def equipos_pendientes(db: Session = Depends(get_db)):
-    return crud_equipos.list_equipos(db, estado="recibido")
+    # estado correcto: "pendiente"
+    return crud_equipos.list_equipos(db, estado="pendiente")
 
 
-@router.get("/reparados", response_model=List[EquipoOut])
-def equipos_reparados(db: Session = Depends(get_db)):
-    return crud_equipos.list_equipos(db, estado="reparado")
+@router.get("/reparacion", response_model=List[EquipoOut])
+def equipos_en_reparacion(db: Session = Depends(get_db)):
+    # estado correcto en CRUD: "en_reparacion"
+    return crud_equipos.list_equipos(db, estado="en_reparacion")
 
 
 @router.get("/entregados", response_model=List[EquipoOut])
@@ -105,8 +103,7 @@ def equipos_entregados(db: Session = Depends(get_db)):
 
 
 # =====================================================
-# 📸 SUBIR DOS FOTOS (FRONT + BACK) AL ÚLTIMO EQUIPO
-# (poner antes de /{equipo_id} para evitar colisiones)
+# 📸 SUBIR DOS FOTOS AL ÚLTIMO EQUIPO
 # =====================================================
 @router.post("/fotos/ultimo", response_model=EquipoOut)
 async def subir_fotos_ultimo(
@@ -119,10 +116,6 @@ async def subir_fotos_ultimo(
     for f in (front, back):
         if not f.content_type.startswith("image/"):
             raise HTTPException(status_code=400, detail="Ambos archivos deben ser imágenes")
-
-        ext = Path(f.filename).suffix.lower()
-        if ext not in {".jpg", ".jpeg", ".png", ".webp"}:
-            raise HTTPException(status_code=400, detail="Formato inválido")
 
     saved = []
 
@@ -147,21 +140,14 @@ async def subir_fotos_ultimo(
         url_back = absolute_url(request, rel_back)
         saved.append(path_back)
 
-        # Obtener el último equipo
         ultimo = crud_equipos.get_last_equipo(db)
         if not ultimo:
             for p in saved:
                 p.unlink(missing_ok=True)
             raise HTTPException(status_code=404, detail="No hay equipos registrados")
 
-        # Guardar JSON en BD
         json_fotos = json.dumps({"front": url_front, "back": url_back})
         actualizado = crud_equipos.set_equipo_foto_json(db, ultimo.id, json_fotos)
-
-        if not actualizado:
-            for p in saved:
-                p.unlink(missing_ok=True)
-            raise HTTPException(status_code=500, detail="Error guardando fotos")
 
         return actualizado
 
@@ -172,7 +158,7 @@ async def subir_fotos_ultimo(
 
 
 # =====================================================
-# 📸 SUBIR 1 FOTO A UN EQUIPO ESPECÍFICO
+# 📸 SUBIR FOTO A UN EQUIPO ESPECÍFICO
 # =====================================================
 @router.post("/{equipo_id}/foto", response_model=EquipoOut)
 async def subir_foto_equipo(
@@ -186,9 +172,6 @@ async def subir_foto_equipo(
         raise HTTPException(status_code=400, detail="El archivo debe ser una imagen")
 
     ext = Path(file.filename).suffix.lower()
-    if ext not in {".jpg", ".jpeg", ".png", ".webp"}:
-        raise HTTPException(status_code=400, detail="Formato inválido")
-
     filename = f"{uuid.uuid4().hex}{ext}"
     path = UPLOAD_DIR / filename
 
@@ -213,7 +196,7 @@ async def subir_foto_equipo(
 
 
 # =====================================================
-# 🔍 OBTENER EQUIPO POR ID  (AL FINAL)
+# 🔍 OBTENER EQUIPO POR ID
 # =====================================================
 @router.get("/{equipo_id}", response_model=EquipoOut)
 def obtener_equipo(equipo_id: int, db: Session = Depends(get_db)):
