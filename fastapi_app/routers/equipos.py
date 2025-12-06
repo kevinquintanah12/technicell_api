@@ -11,7 +11,7 @@ from database import SessionLocal, engine, Base
 from schemas.equipo import EquipoCreate, EquipoUpdate, EquipoOut
 from crud import equipos as crud_equipos
 
-# Crear tablas (si no las creaste en otro lugar)
+# Crear tablas
 Base.metadata.create_all(bind=engine)
 
 router = APIRouter(prefix="/equipos", tags=["Equipos"])
@@ -23,7 +23,9 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 QR_DIR.mkdir(parents=True, exist_ok=True)
 
 
+# =====================================================
 # Dependencia DB
+# =====================================================
 def get_db():
     db = SessionLocal()
     try:
@@ -74,6 +76,25 @@ def listar_equipos(
 
 
 # =====================================================
+# 🔍 LISTAR PENDIENTES / REPARADOS / ENTREGADOS
+# =====================================================
+
+@router.get("/pendientes", response_model=List[EquipoOut])
+def equipos_pendientes(db: Session = Depends(get_db)):
+    return crud_equipos.list_equipos(db, estado="recibido")
+
+
+@router.get("/reparados", response_model=List[EquipoOut])
+def equipos_reparados(db: Session = Depends(get_db)):
+    return crud_equipos.list_equipos(db, estado="reparado")
+
+
+@router.get("/entregados", response_model=List[EquipoOut])
+def equipos_entregados(db: Session = Depends(get_db)):
+    return crud_equipos.list_equipos(db, estado="entregado")
+
+
+# =====================================================
 # 🔍 OBTENER EQUIPO POR ID
 # =====================================================
 @router.get("/{equipo_id}", response_model=EquipoOut)
@@ -107,7 +128,7 @@ def eliminar_equipo(equipo_id: int, db: Session = Depends(get_db)):
 
 
 # =====================================================
-# 📸 SUBIR FOTO — 1 FOTO A UN EQUIPO ESPECÍFICO
+# 📸 SUBIR 1 FOTO A UN EQUIPO ESPECÍFICO
 # =====================================================
 @router.post("/{equipo_id}/foto", response_model=EquipoOut)
 async def subir_foto_equipo(
@@ -145,7 +166,7 @@ async def subir_foto_equipo(
 
 
 # =====================================================
-# 📸 SUBIR **DOS FOTOS** (FRONT + BACK) AL ÚLTIMO EQUIPO
+# 📸 SUBIR DOS FOTOS (FRONT + BACK) AL ÚLTIMO EQUIPO
 # =====================================================
 @router.post("/fotos/ultimo", response_model=EquipoOut)
 async def subir_fotos_ultimo(
@@ -183,14 +204,14 @@ async def subir_fotos_ultimo(
         url_back = f"/static/uploads/equipos/{name_back}"
         saved.append(path_back)
 
-        # OBTENER ÚLTIMO EQUIPO
+        # Obtener el último equipo
         ultimo = crud_equipos.get_last_equipo(db)
         if not ultimo:
             for p in saved:
                 p.unlink(missing_ok=True)
             raise HTTPException(status_code=404, detail="No hay equipos registrados")
 
-        # GUARDAR JSON EN BD
+        # Guardar JSON en BD
         json_fotos = json.dumps({"front": url_front, "back": url_back})
         actualizado = crud_equipos.set_equipo_foto_json(db, ultimo.id, json_fotos)
 
