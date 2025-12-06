@@ -33,7 +33,7 @@ def get_db():
 
 
 # =====================================================
-# 🚀 CREAR EQUIPO (con cliente automático si no mandas cliente_id)
+# 🚀 CREAR EQUIPO
 # =====================================================
 @router.post("/", response_model=EquipoOut, status_code=status.HTTP_201_CREATED)
 def crear_equipo(payload: EquipoCreate, db: Session = Depends(get_db)):
@@ -41,16 +41,13 @@ def crear_equipo(payload: EquipoCreate, db: Session = Depends(get_db)):
     if not equipo:
         raise HTTPException(status_code=400, detail="No se pudo crear el equipo")
 
-    # Generar QR con el ID del equipo
-    qr_data = str(equipo.id)
-    qr_img = qrcode.make(qr_data)
+    # Generar QR
     qr_filename = f"{uuid.uuid4().hex}.png"
     qr_path = QR_DIR / qr_filename
-    qr_img.save(qr_path)
+    qrcode.make(str(equipo.id)).save(qr_path)
     qr_url = f"/static/qrs/equipos/{qr_filename}"
 
-    equipo = crud_equipos.set_equipo_qr(db, equipo.id, qr_url)
-    return equipo
+    return crud_equipos.set_equipo_qr(db, equipo.id, qr_url)
 
 
 # =====================================================
@@ -58,8 +55,8 @@ def crear_equipo(payload: EquipoCreate, db: Session = Depends(get_db)):
 # =====================================================
 @router.get("/", response_model=List[EquipoOut])
 def listar_equipos(
-    nombre_cliente: Optional[str] = Query(None, description="Buscar por nombre de cliente"),
-    estado: Optional[str] = Query(None, description="Estado del equipo"),
+    nombre_cliente: Optional[str] = Query(None),
+    estado: Optional[str] = Query(None),
     skip: int = 0,
     limit: int = 50,
     db: Session = Depends(get_db),
@@ -110,108 +107,101 @@ def eliminar_equipo(equipo_id: int, db: Session = Depends(get_db)):
 
 
 # =====================================================
-# 📸 SUBIR FOTO DEL EQUIPO (un solo archivo para equipo específico)
+# 📸 SUBIR FOTO — 1 FOTO A UN EQUIPO ESPECÍFICO
 # =====================================================
 @router.post("/{equipo_id}/foto", response_model=EquipoOut)
 async def subir_foto_equipo(
     equipo_id: int,
-    file: UploadFile = File(..., description="Imagen del equipo en recepción"),
+    file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    if not file.content_type or not file.content_type.startswith("image/"):
+
+    if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="El archivo debe ser una imagen")
 
-    suffix = Path(file.filename).suffix.lower() if file.filename else ""
-    if suffix not in {".jpg", ".jpeg", ".png", ".webp"}:
-        raise HTTPException(
-            status_code=400,
-            detail="Formato inválido. Usa JPG, PNG o WEBP"
-        )
+    ext = Path(file.filename).suffix.lower()
+    if ext not in {".jpg", ".jpeg", ".png", ".webp"}:
+        raise HTTPException(status_code=400, detail="Formato inválido")
 
-    filename = f"{uuid.uuid4().hex}{suffix}"
-    out_path = UPLOAD_DIR / filename
+    filename = f"{uuid.uuid4().hex}{ext}"
+    path = UPLOAD_DIR / filename
 
     try:
-        with open(out_path, "wb") as f:
+        with open(path, "wb") as f:
             f.write(await file.read())
 
-        foto_url = f"/static/uploads/equipos/{filename}"
-        obj = crud_equipos.set_equipo_foto(db, equipo_id, foto_url)
-        if not obj:
-            out_path.unlink(missing_ok=True)
+        url = f"/static/uploads/equipos/{filename}"
+        res = crud_equipos.set_equipo_foto(db, equipo_id, url)
+
+        if not res:
+            path.unlink(missing_ok=True)
             raise HTTPException(status_code=404, detail="Equipo no encontrado")
-        return obj
-    except HTTPException:
-        raise
+
+        return res
+
     except Exception as e:
-        try:
-            out_path.unlink(missing_ok=True)
-        except:
-            pass
-        raise HTTPException(status_code=500, detail=f"Error guardando la imagen: {str(e)}")
+        path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # =====================================================
-# 📸 SUBIR DOS FOTOS (front + back) AL ÚLTIMO EQUIPO CREADO
+# 📸 SUBIR **DOS FOTOS** (FRONT + BACK) AL ÚLTIMO EQUIPO
 # =====================================================
-@router.post("/fotos/ultimo", response_model=EquipoOut, status_code=status.HTTP_200_OK)
+@router.post("/fotos/ultimo", response_model=EquipoOut)
 async def subir_fotos_ultimo(
-    front: UploadFile = File(..., description="Foto frontal"),
-    back: UploadFile = File(..., description="Foto trasera"),
+    front: UploadFile = File(...),
+    back: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    # Validar que sean imágenes y extensiones permitidas
+
     for f in (front, back):
-        if not f.content_type or not f.content_type.startswith("image/"):
-            raise HTTPException(status_code=400, detail="Los archivos deben ser imágenes")
-        suffix = Path(f.filename).suffix.lower() if f.filename else ""
-        if suffix not in {".jpg", ".jpeg", ".png", ".webp"}:
-            raise HTTPException(status_code=400, detail="Formato inválido. Usa JPG, PNG o WEBP")
+        if not f.content_type.startswith("image/"):
+            raise HTTPException(status_code=400, detail="Ambos archivos deben ser imágenes")
 
-    saved_files = []
+        ext = Path(f.filename).suffix.lower()
+        if ext not in {".jpg", ".jpeg", ".png", ".webp"}:
+            raise HTTPException(status_code=400, detail="Formato inválido")
+
+    saved = []
+
     try:
-        # Guardar front
-        front_suffix = Path(front.filename).suffix.lower()
-        front_name = f"{uuid.uuid4().hex}{front_suffix}"
-        front_path = UPLOAD_DIR / front_name
-        with open(front_path, "wb") as out_f:
-            out_f.write(await front.read())
-        front_url = f"/static/uploads/equipos/{front_name}"
-        saved_files.append(front_path)
+        # FRONT
+        ext_front = Path(front.filename).suffix.lower()
+        name_front = f"{uuid.uuid4().hex}{ext_front}"
+        path_front = UPLOAD_DIR / name_front
+        with open(path_front, "wb") as f:
+            f.write(await front.read())
+        url_front = f"/static/uploads/equipos/{name_front}"
+        saved.append(path_front)
 
-        # Guardar back
-        back_suffix = Path(back.filename).suffix.lower()
-        back_name = f"{uuid.uuid4().hex}{back_suffix}"
-        back_path = UPLOAD_DIR / back_name
-        with open(back_path, "wb") as out_f:
-            out_f.write(await back.read())
-        back_url = f"/static/uploads/equipos/{back_name}"
-        saved_files.append(back_path)
+        # BACK
+        ext_back = Path(back.filename).suffix.lower()
+        name_back = f"{uuid.uuid4().hex}{ext_back}"
+        path_back = UPLOAD_DIR / name_back
+        with open(path_back, "wb") as f:
+            f.write(await back.read())
+        url_back = f"/static/uploads/equipos/{name_back}"
+        saved.append(path_back)
 
-        # Obtener último equipo
+        # OBTENER ÚLTIMO EQUIPO
         ultimo = crud_equipos.get_last_equipo(db)
         if not ultimo:
-            for p in saved_files:
+            for p in saved:
                 p.unlink(missing_ok=True)
-            raise HTTPException(status_code=404, detail="No se encontró ningún equipo existente")
+            raise HTTPException(status_code=404, detail="No hay equipos registrados")
 
-        # Guardar las dos fotos como JSON en el campo foto_url
-        fotos_json = json.dumps({"front": front_url, "back": back_url})
-        actualizado = crud_equipos.set_equipo_foto_json(db, ultimo.id, fotos_json)
+        # GUARDAR JSON EN BD
+        json_fotos = json.dumps({"front": url_front, "back": url_back})
+        actualizado = crud_equipos.set_equipo_foto_json(db, ultimo.id, json_fotos)
+
         if not actualizado:
-            # limpiar archivos guardados
-            for p in saved_files:
+            for p in saved:
                 p.unlink(missing_ok=True)
-            raise HTTPException(status_code=500, detail="Error guardando las fotos en el equipo")
+            raise HTTPException(status_code=500, detail="Error guardando fotos")
 
         return actualizado
 
-    except HTTPException:
-        raise
     except Exception as e:
-        for p in saved_files:
-            try:
-                p.unlink(missing_ok=True)
-            except:
-                pass
-        raise HTTPException(status_code=500, detail=f"Error guardando las imágenes: {str(e)}")
+        for p in saved:
+            p.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=str(e))
