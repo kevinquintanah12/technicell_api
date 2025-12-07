@@ -25,7 +25,7 @@ class EquipoBase(BaseModel):
     observaciones: Optional[str] = None
     clave_bloqueo: Optional[str] = None
     articulos_entregados: List[str] = Field(default_factory=list)
-    estado: Optional[EstadoEquipoLiteral] = "recibido"
+    estado: Optional[EstadoEquipoLiteral] = "pendientes"
     imei: Optional[str] = None
 
     @validator("imei")
