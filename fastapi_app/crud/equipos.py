@@ -30,7 +30,7 @@ def create_equipo(db: Session, payload: EquipoCreate) -> Equipo:
         correo=payload.cliente_correo
     )
 
-    estado = payload.estado if payload.estado in VALID_ESTADOS else "recibido"
+    estado = payload.estado if payload.estado in VALID_ESTADOS else "pendientes"
 
     db_equipo = Equipo(
         cliente_id=cliente.id,
