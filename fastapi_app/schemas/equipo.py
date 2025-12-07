@@ -11,6 +11,7 @@ EstadoEquipoLiteral = Literal[
     "listo",
     "entregado",
     "cancelado",
+    "pendientes",
 ]
 
 
