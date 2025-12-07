@@ -87,7 +87,7 @@ def listar_equipos(
 # =====================================================
 @router.get("/pendientes", response_model=List[EquipoOut])
 def equipos_pendientes(db: Session = Depends(get_db)):
-    return crud_equipos.list_equipos(db, estado="pendiente")
+    return crud_equipos.list_equipos(db, estado="pendientes")
 
 
 @router.get("/reparacion", response_model=List[EquipoOut])
