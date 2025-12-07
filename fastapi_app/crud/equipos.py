@@ -16,7 +16,7 @@ VALID_ESTADOS = [
     "listo",
     "entregado",
     "cancelado",
-    "pendiente"  # 👈 agregado
+    "pendientes"  # 👈 agregado
 ]
 
 # =====================================================
