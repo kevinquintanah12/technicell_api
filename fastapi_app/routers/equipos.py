@@ -84,6 +84,7 @@ def listar_equipos(
 
 # =====================================================
 # 🔍 LISTAS ESPECÍFICAS (PENDIENTES / REPARACIÓN / ENTREGADOS)
+# NOTE: estas rutas de texto deben ir ANTES de las rutas con {equipo_id}
 # =====================================================
 @router.get("/pendientes", response_model=List[EquipoOut])
 def equipos_pendientes(db: Session = Depends(get_db)):
@@ -191,13 +192,19 @@ async def subir_foto_equipo(
         return res
 
     except Exception as e:
-        path.unlink(missing_ok=True)
+        # Asegúrate de borrar el archivo temporal si algo falla
+        try:
+            path.unlink(missing_ok=True)
+        except Exception:
+            pass
         raise HTTPException(status_code=500, detail=str(e))
 
 
 # =====================================================
 # 🔍 OBTENER EQUIPO POR ID
 # =====================================================
+# ESTA RUTA DEBE IR AL FINAL para evitar que "pendientes" u otras rutas de texto
+# sean interpretadas como {equipo_id}
 @router.get("/{equipo_id}", response_model=EquipoOut)
 def obtener_equipo(equipo_id: int, db: Session = Depends(get_db)):
     obj = crud_equipos.get_equipo(db, equipo_id)
