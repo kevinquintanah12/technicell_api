@@ -16,7 +16,9 @@ Base.metadata.create_all(bind=engine)
 
 router = APIRouter(prefix="/equipos", tags=["Equipos"])
 
-# Carpetas para fotos y QRs
+# =====================================================
+# Carpetas de fotos / QR
+# =====================================================
 UPLOAD_DIR = Path("static/uploads/equipos")
 QR_DIR = Path("static/qrs/equipos")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -53,9 +55,7 @@ def crear_equipo(payload: EquipoCreate, request: Request, db: Session = Depends(
     qr_path = QR_DIR / qr_filename
     qrcode.make(str(equipo.id)).save(qr_path)
 
-    qr_rel = f"/static/qrs/equipos/{qr_filename}"
-    qr_url = absolute_url(request, qr_rel)
-
+    qr_url = absolute_url(request, f"/static/qrs/equipos/{qr_filename}")
     return crud_equipos.set_equipo_qr(db, equipo.id, qr_url)
 
 
@@ -83,18 +83,15 @@ def listar_equipos(
 
 
 # =====================================================
-# 🔍 LISTAS ESPECÍFICAS (PENDIENTES / REPARACIÓN / ENTREGADOS)
-# NOTE: estas rutas de texto deben ir ANTES de las rutas con {equipo_id}
+# 🔍 RUTAS ESTÁTICAS (DEBEN IR ANTES DE {equipo_id})
 # =====================================================
 @router.get("/pendientes", response_model=List[EquipoOut])
 def equipos_pendientes(db: Session = Depends(get_db)):
-    # estado correcto: "pendiente"
     return crud_equipos.list_equipos(db, estado="pendiente")
 
 
 @router.get("/reparacion", response_model=List[EquipoOut])
 def equipos_en_reparacion(db: Session = Depends(get_db)):
-    # estado correcto en CRUD: "en_reparacion"
     return crud_equipos.list_equipos(db, estado="en_reparacion")
 
 
@@ -127,8 +124,7 @@ async def subir_fotos_ultimo(
         path_front = UPLOAD_DIR / name_front
         with open(path_front, "wb") as f:
             f.write(await front.read())
-        rel_front = f"/static/uploads/equipos/{name_front}"
-        url_front = absolute_url(request, rel_front)
+        url_front = absolute_url(request, f"/static/uploads/equipos/{name_front}")
         saved.append(path_front)
 
         # BACK
@@ -137,8 +133,7 @@ async def subir_fotos_ultimo(
         path_back = UPLOAD_DIR / name_back
         with open(path_back, "wb") as f:
             f.write(await back.read())
-        rel_back = f"/static/uploads/equipos/{name_back}"
-        url_back = absolute_url(request, rel_back)
+        url_back = absolute_url(request, f"/static/uploads/equipos/{name_back}")
         saved.append(path_back)
 
         ultimo = crud_equipos.get_last_equipo(db)
@@ -148,9 +143,7 @@ async def subir_fotos_ultimo(
             raise HTTPException(status_code=404, detail="No hay equipos registrados")
 
         json_fotos = json.dumps({"front": url_front, "back": url_back})
-        actualizado = crud_equipos.set_equipo_foto_json(db, ultimo.id, json_fotos)
-
-        return actualizado
+        return crud_equipos.set_equipo_foto_json(db, ultimo.id, json_fotos)
 
     except Exception as e:
         for p in saved:
@@ -159,7 +152,7 @@ async def subir_fotos_ultimo(
 
 
 # =====================================================
-# 📸 SUBIR FOTO A UN EQUIPO ESPECÍFICO
+# 📸 SUBIR FOTO A EQUIPO ESPECÍFICO
 # =====================================================
 @router.post("/{equipo_id}/foto", response_model=EquipoOut)
 async def subir_foto_equipo(
@@ -180,9 +173,7 @@ async def subir_foto_equipo(
         with open(path, "wb") as f:
             f.write(await file.read())
 
-        rel = f"/static/uploads/equipos/{filename}"
-        url = absolute_url(request, rel)
-
+        url = absolute_url(request, f"/static/uploads/equipos/{filename}")
         res = crud_equipos.set_equipo_foto(db, equipo_id, url)
 
         if not res:
@@ -192,21 +183,26 @@ async def subir_foto_equipo(
         return res
 
     except Exception as e:
-        # Asegúrate de borrar el archivo temporal si algo falla
         try:
             path.unlink(missing_ok=True)
-        except Exception:
+        except:
             pass
         raise HTTPException(status_code=500, detail=str(e))
 
 
 # =====================================================
 # 🔍 OBTENER EQUIPO POR ID
+# (Siempre al final)
 # =====================================================
-# ESTA RUTA DEBE IR AL FINAL para evitar que "pendientes" u otras rutas de texto
-# sean interpretadas como {equipo_id}
 @router.get("/{equipo_id}", response_model=EquipoOut)
 def obtener_equipo(equipo_id: int, db: Session = Depends(get_db)):
+
+    # Protección extra contra llamadas con espacios o texto
+    if isinstance(equipo_id, str):
+        cleaned = equipo_id.strip()
+        if not cleaned.isdigit():
+            raise HTTPException(status_code=400, detail="El ID debe ser un número entero válido")
+
     obj = crud_equipos.get_equipo(db, equipo_id)
     if not obj:
         raise HTTPException(status_code=404, detail="Equipo no encontrado")
