@@ -31,9 +31,6 @@ def _draw_header_simple(
     company: str,
     subtitle: str,
 ) -> float:
-    """
-    Header simple: logo centrado y textos. Devuelve la Y inicial del contenido.
-    """
     y = alto - margin
     max_logo_h = 25 * mm
     max_logo_w = ancho - 2 * margin
@@ -92,62 +89,53 @@ def generar_ticket_ingreso_reparacion(
     serie: Optional[str] = None,
     falla_descripcion: Optional[str] = None,
     observaciones: Optional[str] = None,
-    # campos de cobro/opcionales
     anticipo: Optional[float] = 0.0,
     total: Optional[float] = 0.0,
     tipo_pago: Optional[str] = None,
     monto_recibido: Optional[float] = 0.0,
     cambio: Optional[float] = 0.0,
-    tipo_ticket: str = "Físico",  # "Físico" o "Electrónico"
+    tipo_ticket: str = "Físico",
     fecha_ingreso: Optional[datetime] = None,
     plazo_estimado: Optional[str] = None,
     path: str = "tickets",
     logo_path: str = "static/logogo.png",
     company_name: str = "TECHNICELL",
-    # Soporta recibir todo el ingreso como dict (por compatibilidad con llamadas antiguas)
     ingreso: Optional[Dict[str, Any]] = None,
+    equipo_id: Optional[int] = None,  # <-- nuevo parámetro
 ) -> str:
     """
     Genera un ticket PDF de ingreso/recepción para reparación.
-    Acepta dos formas:
-      - pasar los parámetros individuales (cliente_nombre, articulo, etc.)
-      - pasar `ingreso` (dict) con keys compatibles:
-            cliente_nombre, contacto/telefono, articulo/equipo, modelo, serie/imei,
-            falla_descripcion/falla, observaciones, anticipo, total, tipo_pago, monto_recibido
-    Devuelve la ruta absoluta del PDF generado.
     """
-    # Si se envió `ingreso` como dict, sobreescribimos valores con lo que venga ahí.
+    # Sobreescribir valores si ingreso es dict
     if ingreso and isinstance(ingreso, dict):
-        # mapping flexible: acepta varios nombres comunes
-        cliente_nombre = cliente_nombre or ingreso.get("cliente_nombre") or ingreso.get("nombre_cliente") or ingreso.get("cliente")
+        cliente_nombre = cliente_nombre or ingreso.get("cliente_nombre") or ingreso.get("nombre_cliente")
         contacto = contacto or ingreso.get("telefono") or ingreso.get("contacto")
         articulo = articulo or ingreso.get("articulo") or ingreso.get("equipo") or ingreso.get("marca")
         modelo = modelo or ingreso.get("modelo")
         serie = serie or ingreso.get("imei") or ingreso.get("serie")
-        falla_descripcion = falla_descripcion or ingreso.get("falla") or ingreso.get("falla_reportada") or ingreso.get("problema")
+        falla_descripcion = falla_descripcion or ingreso.get("falla") or ingreso.get("falla_reportada")
         observaciones = observaciones or ingreso.get("observaciones")
-        # cobro
         anticipo = anticipo if anticipo not in (None,) else ingreso.get("anticipo", 0.0)
         total = total if total not in (None,) else ingreso.get("total_estimado", ingreso.get("total", 0.0))
         tipo_pago = tipo_pago or ingreso.get("tipo_pago")
         monto_recibido = monto_recibido if monto_recibido not in (None,) else ingreso.get("monto_recibido", 0.0)
         cambio = cambio if cambio not in (None,) else ingreso.get("cambio", 0.0)
         fecha_ingreso = fecha_ingreso or ingreso.get("fecha_ingreso")
+        equipo_id = equipo_id or ingreso.get("equipo_id")  # <-- tomar equipo_id del dict si existe
 
-    # Valores por defecto mínimos
     fecha_ingreso = fecha_ingreso or datetime.now()
     cliente_nombre = cliente_nombre or "Cliente"
     articulo = articulo or "Artículo"
     falla_descripcion = falla_descripcion or "No especificada"
 
-    
     tickets_dir = _get_tickets_dir(path)
-
-# obtener número del ticket (1..100)
     numero_ticket = obtener_siguiente_numero_ticket(tickets_dir)
 
-# nombre del archivo usando la numeración rotativa
-    nombre_archivo = tickets_dir / f"ticket_ingreso_reparacion_{numero_ticket}.pdf"
+    # nombre del archivo con número de ticket y equipo_id opcional
+    if equipo_id:
+        nombre_archivo = tickets_dir / f"ticket_ingreso_reparacion_{numero_ticket}_equipo{equipo_id}.pdf"
+    else:
+        nombre_archivo = tickets_dir / f"ticket_ingreso_reparacion_{numero_ticket}.pdf"
 
     ancho, alto = A5
     margin = 10 * mm
@@ -161,6 +149,14 @@ def generar_ticket_ingreso_reparacion(
         c = canvas.Canvas(str(nombre_archivo), pagesize=A5)
         subtitle = "Recibo de ingreso / Recepción de equipo"
         y = _draw_header_simple(c, ancho, alto, margin, logo_full, company_name, subtitle)
+
+        # ID del equipo
+        if equipo_id:
+            c.setFont("Helvetica-Bold", 9)
+            c.drawString(left_x, y, "ID Equipo:")
+            c.setFont("Helvetica", 9)
+            c.drawString(left_x + 28 * mm, y, str(equipo_id))
+            y -= line_h
 
         # Cliente / dispositivo
         c.setFont("Helvetica-Bold", 9)
@@ -196,14 +192,14 @@ def generar_ticket_ingreso_reparacion(
             c.drawString(left_x + 28 * mm, y, f"{serie}")
             y -= line_h
 
-        # Falla / descripcion (wrap simple)
+        # Falla / descripcion (wrap)
         c.setFont("Helvetica-Bold", 9)
         c.drawString(left_x, y, "Falla reportada:")
         y -= (line_h - 2 * mm)
         c.setFont("Helvetica", 9)
         text = c.beginText(left_x, y)
         text.setFont("Helvetica", 9)
-        for ln in _wrap_text(str(falla_descripcion or "No especificada"), 48):
+        for ln in _wrap_text(str(falla_descripcion), 48):
             text.textLine(ln)
             y -= (4.5 * mm)
         c.drawText(text)
@@ -223,10 +219,7 @@ def generar_ticket_ingreso_reparacion(
             c.drawText(text_obs)
             y -= (2 * mm)
 
-        # Espacio antes de sección cobro/fecha
-        y -= (2 * mm)
-
-        # Cobro (si se pasaron datos de cobro, los mostramos)
+        # Cobro
         show_cobro = any(x not in (None, 0, 0.0, "") for x in (anticipo, total, tipo_pago, monto_recibido, cambio))
         if show_cobro:
             c.setFont("Helvetica-Bold", 9)
@@ -248,11 +241,9 @@ def generar_ticket_ingreso_reparacion(
             if cambio not in (None, 0, 0.0):
                 c.drawString(left_x + 6 * mm, y, f"Cambio: ${float(cambio):.2f}")
                 y -= (line_h - 2 * mm)
-
-            # pequeña separación
             y -= (2 * mm)
 
-        # Fecha / tipo de ticket / plazo estimado
+        # Fecha / tipo de ticket / plazo
         c.setFont("Helvetica-Bold", 9)
         c.drawString(left_x, y, "Fecha ingreso:")
         c.setFont("Helvetica", 9)
@@ -272,17 +263,13 @@ def generar_ticket_ingreso_reparacion(
             c.drawString(left_x + 28 * mm, y, plazo_estimado)
             y -= line_h
 
-        y -= (4 * mm)
-
-        # Línea separadora
+        # Pie y cláusula
         c.setLineWidth(0.4)
         c.line(left_x, y, right_x, y)
-        y -= (6 * mm)
-
-        # Aviso / cláusula
+        y -= 6 * mm
         c.setFont("Helvetica-Bold", 9)
         c.drawCentredString(ancho / 2, y, "IMPORTANTE")
-        y -= (5 * mm)
+        y -= 5 * mm
         c.setFont("Helvetica", 8)
         aviso_lines = [
             "El artículo se entregará junto con el ticket físico o electrónico.",
@@ -292,23 +279,19 @@ def generar_ticket_ingreso_reparacion(
         for ln in aviso_lines:
             for sub in _wrap_text(ln, 60):
                 c.drawCentredString(ancho / 2, y, sub)
-                y -= (4.5 * mm)
-        y -= (4 * mm)
-
-        # Espacio firma / recepción
+                y -= 4.5 * mm
+        y -= 4 * mm
         c.setFont("Helvetica", 9)
         c.drawString(left_x, y, "Recibido por (firma): ____________________________")
-        y -= (10 * mm)
+        y -= 10 * mm
         c.drawString(left_x, y, "Entrega prevista (firma cliente): __________________")
-        y -= (10 * mm)
-
-        # Pie
+        y -= 10 * mm
         c.setFont("Helvetica-Oblique", 8)
-        c.drawCentredString(ancho / 2, margin + (6 * mm), f"{company_name} - Servicio técnico")
+        c.drawCentredString(ancho / 2, margin + 6 * mm, f"{company_name} - Servicio técnico")
 
-        # finaliza
         c.showPage()
         c.save()
+
     except Exception as e:
         logger.exception("Error generando ticket de ingreso/reparacion")
         try:
@@ -318,7 +301,6 @@ def generar_ticket_ingreso_reparacion(
             pass
         raise RuntimeError(f"Error generando ticket ingreso reparacion: {e}")
 
-    # Verificación
     if not nombre_archivo.exists() or nombre_archivo.stat().st_size == 0:
         raise RuntimeError("No se pudo generar el ticket de ingreso (archivo vacío o inexistente)")
 
@@ -327,9 +309,6 @@ def generar_ticket_ingreso_reparacion(
 
 
 def _wrap_text(text: str, max_chars: int):
-    """
-    Helper muy simple para dividir texto en líneas con max_chars caracteres.
-    """
     if not text:
         return [""]
     words = text.split()

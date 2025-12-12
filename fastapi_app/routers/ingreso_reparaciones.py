@@ -20,20 +20,6 @@ router = APIRouter(prefix="/ingreso_reparacion", tags=["Ingreso Reparacion"])
 async def crear_ingreso_reparacion(request: Request, db: Session = Depends(get_db)):
     """
     Crea un ingreso por reparación y genera su ticket PDF.
-    Body esperado (ejemplo):
-    {
-      "cliente_nombre": "Juan Pérez",
-      "cliente_id": 1,                    # opcional
-      "equipo": "iPhone 13",
-      "modelo": "A2633",
-      "imei": "123456789012345",
-      "falla_reportada": "No enciende",
-      "observaciones": "Se apaga solo",
-      "anticipo": 150.0,
-      "total_estimado": 600.0,
-      "tipo_pago": "Efectivo",
-      "monto_recibido": 150.0
-    }
     """
     try:
         try:
@@ -79,65 +65,59 @@ async def crear_ingreso_reparacion(request: Request, db: Session = Depends(get_d
 
         logger.debug("Creando ingreso_reparacion: %s", ingreso_payload)
 
-        # Guardar en BD (tu CRUD debe aceptar dict o adaptarlo)
+        # Guardar en BD
         ingreso = crud_ingreso.crear_ingreso(db, ingreso_payload)
         if ingreso is None:
             raise HTTPException(status_code=500, detail="No se pudo crear el ingreso en la base de datos")
 
         # Determinar montos a reportar
-        # Preferir total_final si el CRUD lo llenó, sino total_estimado
         total = float(getattr(ingreso, "total_final", None) or getattr(ingreso, "total_estimado", None) or total_estimado or 0.0)
         anticipo_safe = float(anticipo or 0.0)
         monto_recibido_safe = float(monto_recibido or 0.0)
-
         monto_cobrado_ahora = anticipo_safe if anticipo_safe > 0 else total
         cambio = max(0.0, monto_recibido_safe - monto_cobrado_ahora) if tipo_pago.lower() == "efectivo" else 0.0
 
-        # Preparar dict que recibirá el generador de ticket
-        # si ingreso es objeto ORM lo convertimos a dict simple
+        # Preparar dict para ticket
         try:
             ingreso_dict = ingreso.__dict__.copy()
-            # limpiar claves internas si existen
             ingreso_dict.pop("_sa_instance_state", None)
         except Exception:
             ingreso_dict = dict(ingreso) if isinstance(ingreso, dict) else {"id": getattr(ingreso, "id", None)}
 
-        # Generar ticket PDF (intento con anticipo, si no, sin anticipo)
+        # Obtener equipo_id (usando id del ingreso como referencia)
+        equipo_id = getattr(ingreso, "id", None)
+
+        # Generar ticket PDF
         ticket_path: Optional[str] = None
         try:
-            try:
-                ticket_path = generar_ticket_ingreso_reparacion(
-                    ingreso=ingreso_dict,
-                    tipo_pago=tipo_pago,
-                    monto_recibido=monto_recibido_safe,
-                    cambio=cambio,
-                    anticipo=anticipo_safe,
-                )
-            except TypeError:
-                # Firma alternativa sin 'anticipo'
-                ticket_path = generar_ticket_ingreso_reparacion(
-                    ingreso=ingreso_dict,
-                    tipo_pago=tipo_pago,
-                    monto_recibido=monto_recibido_safe,
-                    cambio=cambio,
-                )
+            ticket_path = generar_ticket_ingreso_reparacion(
+                ingreso=ingreso_dict,
+                tipo_pago=tipo_pago,
+                monto_recibido=monto_recibido_safe,
+                cambio=cambio,
+                anticipo=anticipo_safe,
+                equipo_id=equipo_id,
+            )
+        except TypeError:
+            # Firma alternativa sin 'anticipo'
+            ticket_path = generar_ticket_ingreso_reparacion(
+                ingreso=ingreso_dict,
+                tipo_pago=tipo_pago,
+                monto_recibido=monto_recibido_safe,
+                cambio=cambio,
+                equipo_id=equipo_id,
+            )
         except Exception as e:
             logger.exception("Error generando ticket de ingreso de reparación")
-            # El ingreso ya fue registrado; devolvemos error indicando el ticket
             raise HTTPException(status_code=500, detail=f"Ingreso registrado pero error generando ticket: {e}")
 
         # Validar archivo generado
         file_path = Path(ticket_path)
-        if not file_path.exists():
-            raise HTTPException(status_code=500, detail="Ticket generado pero archivo no encontrado")
-        file_size = file_path.stat().st_size
-        if file_size == 0:
-            raise HTTPException(status_code=500, detail="Ticket generado pero el archivo está vacío")
+        if not file_path.exists() or file_path.stat().st_size == 0:
+            raise HTTPException(status_code=500, detail="Ticket generado pero archivo no encontrado o vacío")
 
         ticket_name = os.path.basename(ticket_path)
-        base = str(request.base_url).rstrip("/")  # e.g. http://host:8000
         ticket_url = f"/ingreso/ingreso_reparacion/ticket/{ticket_name}"
-
 
         # Respuesta
         return {
@@ -151,7 +131,7 @@ async def crear_ingreso_reparacion(request: Request, db: Session = Depends(get_d
             "ticket": ticket_name,
             "ticket_url": ticket_url,
             "ticket_path": str(file_path.resolve()),
-            "ticket_size_bytes": file_size,
+            "ticket_size_bytes": file_path.stat().st_size,
         }
 
     except HTTPException:
@@ -166,7 +146,6 @@ def obtener_ingreso(ingreso_id: int, db: Session = Depends(get_db)):
     ingreso = crud_ingreso.obtener_ingreso(db, ingreso_id)
     if not ingreso:
         raise HTTPException(status_code=404, detail="Ingreso no encontrado")
-    # si es ORM, devolverlo como dict ORMs deben estar permitidos por Pydantic en la app; aquí devolvemos raw
     try:
         ingreso_dict = ingreso.__dict__.copy()
         ingreso_dict.pop("_sa_instance_state", None)
@@ -177,9 +156,6 @@ def obtener_ingreso(ingreso_id: int, db: Session = Depends(get_db)):
 
 @router.put("/{ingreso_id}")
 def actualizar_ingreso(ingreso_id: int, payload: Dict[str, Any], db: Session = Depends(get_db)):
-    """
-    Actualiza campos del ingreso. payload puede contener: estado, total_final, observaciones, anticipo, etc.
-    """
     ingreso_actualizado = crud_ingreso.actualizar_ingreso(db, ingreso_id, payload)
     if not ingreso_actualizado:
         raise HTTPException(status_code=404, detail="Ingreso no encontrado o no se pudo actualizar")
