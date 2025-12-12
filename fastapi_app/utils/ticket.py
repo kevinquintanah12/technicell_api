@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 import logging
 import os
+import re
 from utils.ticket_counter import obtener_siguiente_numero_ticket
 
 logger = logging.getLogger(__name__)
@@ -20,6 +21,59 @@ def _get_tickets_dir(path: Optional[str] = "tickets") -> Path:
     tickets_dir = (base_dir / path).resolve()
     tickets_dir.mkdir(parents=True, exist_ok=True)
     return tickets_dir
+
+
+def _sanitize_filename(name: str, max_len: int = 120) -> str:
+    """
+    Sanitiza el nombre de archivo:
+    - Extrae basename (evita path traversal)
+    - Reemplaza caracteres no seguros por underscore
+    - Asegura extensión .pdf
+    - Trunca longitud
+    """
+    if not name:
+        return ""
+
+    # basename para prevenir "../"
+    name = os.path.basename(name)
+
+    # Si no tiene extension .pdf al final, la añadimos
+    if not name.lower().endswith(".pdf"):
+        name = f"{name}.pdf"
+
+    # Reemplazar caracteres no permitidos (permitir letras, números, guion bajo, guion, puntos)
+    name = re.sub(r'[^A-Za-z0-9._\-]', '_', name)
+
+    # Evitar empezar con punto
+    if name.startswith('.'):
+        name = f"ticket{name}"
+
+    # Truncar manteniendo extension
+    if len(name) > max_len:
+        base, ext = os.path.splitext(name)
+        base = base[: max_len - len(ext)]
+        name = f"{base}{ext}"
+
+    return name
+
+
+def _unique_path_for(tickets_dir: Path, desired_name: str) -> Path:
+    """
+    Si desired_name ya existe en tickets_dir, añade sufijos _1, _2, ...
+    Devuelve Path final (no crea archivo).
+    """
+    candidate = tickets_dir / desired_name
+    if not candidate.exists():
+        return candidate
+
+    base, ext = os.path.splitext(desired_name)
+    index = 1
+    while True:
+        new_name = f"{base}_{index}{ext}"
+        candidate = tickets_dir / new_name
+        if not candidate.exists():
+            return candidate
+        index += 1
 
 
 def _draw_header_simple(
@@ -101,10 +155,14 @@ def generar_ticket_ingreso_reparacion(
     logo_path: str = "static/logogo.png",
     company_name: str = "TECHNICELL",
     ingreso: Optional[Dict[str, Any]] = None,
-    equipo_id: Optional[int] = None,  # <-- nuevo parámetro
+    equipo_id: Optional[int] = None,
+    ticket_name: Optional[str] = None,  # <-- nuevo parámetro opcional que puede venir de Flutter
 ) -> str:
     """
     Genera un ticket PDF de ingreso/recepción para reparación.
+    Si se provee `ticket_name`, se usa (después de sanitizar). Si no, se genera
+    un nombre por defecto usando el número de ticket y (opcional) equipo_id.
+    Devuelve la ruta absoluta al archivo creado.
     """
     # Sobreescribir valores si ingreso es dict
     if ingreso and isinstance(ingreso, dict):
@@ -131,11 +189,25 @@ def generar_ticket_ingreso_reparacion(
     tickets_dir = _get_tickets_dir(path)
     numero_ticket = obtener_siguiente_numero_ticket(tickets_dir)
 
-    # nombre del archivo con número de ticket y equipo_id opcional
-    if equipo_id:
-        nombre_archivo = tickets_dir / f"ticket_ingreso_reparacion_{numero_ticket}_equipo{equipo_id}.pdf"
-    else:
-        nombre_archivo = tickets_dir / f"ticket_ingreso_reparacion_{numero_ticket}.pdf"
+    # ------------- Determinar nombre de archivo seguro -------------
+    # Si Flutter nos pasa ticket_name -> sanitizearlo y asegurar .pdf
+    safe_name = None
+    if ticket_name:
+        safe_name = _sanitize_filename(ticket_name)
+        # si el nombre quedó vacío por alguna razón, lo ignoramos y generamos uno por defecto
+        if not safe_name:
+            safe_name = None
+
+    # Si no se proporcionó ticket_name válido -> construir por defecto
+    if not safe_name:
+        if equipo_id:
+            default_name = f"ticket_ingreso_reparacion_{numero_ticket}_equipo{equipo_id}.pdf"
+        else:
+            default_name = f"ticket_ingreso_reparacion_{numero_ticket}.pdf"
+        safe_name = _sanitize_filename(default_name)
+
+    # Obtener ruta final única (si ya existe, añade sufijo _1, _2...)
+    nombre_archivo = _unique_path_for(tickets_dir, safe_name)
 
     ancho, alto = A5
     margin = 10 * mm
