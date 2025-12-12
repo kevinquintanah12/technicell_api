@@ -19,7 +19,7 @@ router = APIRouter(prefix="/ingreso_reparacion", tags=["Ingreso Reparacion"])
 @router.post("/", status_code=status.HTTP_201_CREATED)
 async def crear_ingreso_reparacion(request: Request, db: Session = Depends(get_db)):
     """
-    Crea un ingreso por reparación y genera su ticket PDF.
+    Crea un ingreso por reparación y genera su ticket PDF con el ID real del equipo.
     """
     try:
         try:
@@ -32,7 +32,7 @@ async def crear_ingreso_reparacion(request: Request, db: Session = Depends(get_d
 
         # Campos relevantes
         cliente_nombre = body.get("cliente_nombre") or body.get("cliente")  # soporte alias
-        equipo = body.get("equipo")
+        equipo_id = body.get("equipo_id") or body.get("equipo")  # ✅ ID real del equipo
         falla_reportada = body.get("falla_reportada") or body.get("falla")
         modelo = body.get("modelo")
         imei = body.get("imei")
@@ -45,16 +45,16 @@ async def crear_ingreso_reparacion(request: Request, db: Session = Depends(get_d
         monto_recibido = float(body.get("monto_recibido", 0.0) or 0.0)
 
         # Validaciones mínimas
-        if not cliente_nombre or not equipo or not falla_reportada:
+        if not cliente_nombre or not equipo_id or not falla_reportada:
             raise HTTPException(
                 status_code=400,
-                detail="Faltan campos obligatorios: 'cliente_nombre', 'equipo' o 'falla_reportada'"
+                detail="Faltan campos obligatorios: 'cliente_nombre', 'equipo_id' o 'falla_reportada'"
             )
 
         ingreso_payload: Dict[str, Any] = {
             "cliente_id": cliente_id,
             "cliente_nombre": cliente_nombre,
-            "equipo": equipo,
+            "equipo": equipo_id,
             "modelo": modelo,
             "imei": imei,
             "falla_reportada": falla_reportada,
@@ -70,7 +70,7 @@ async def crear_ingreso_reparacion(request: Request, db: Session = Depends(get_d
         if ingreso is None:
             raise HTTPException(status_code=500, detail="No se pudo crear el ingreso en la base de datos")
 
-        # Determinar montos a reportar
+        # Montos
         total = float(getattr(ingreso, "total_final", None) or getattr(ingreso, "total_estimado", None) or total_estimado or 0.0)
         anticipo_safe = float(anticipo or 0.0)
         monto_recibido_safe = float(monto_recibido or 0.0)
@@ -84,10 +84,7 @@ async def crear_ingreso_reparacion(request: Request, db: Session = Depends(get_d
         except Exception:
             ingreso_dict = dict(ingreso) if isinstance(ingreso, dict) else {"id": getattr(ingreso, "id", None)}
 
-        # Obtener equipo_id (usando id del ingreso como referencia)
-        equipo_id = getattr(ingreso, "id", None)
-
-        # Generar ticket PDF
+        # Generar ticket PDF con equipo_id real
         ticket_path: Optional[str] = None
         try:
             ticket_path = generar_ticket_ingreso_reparacion(
@@ -96,10 +93,9 @@ async def crear_ingreso_reparacion(request: Request, db: Session = Depends(get_d
                 monto_recibido=monto_recibido_safe,
                 cambio=cambio,
                 anticipo=anticipo_safe,
-                equipo_id=equipo_id,
+                equipo_id=equipo_id,  # ✅ ahora es el ID real del equipo
             )
         except TypeError:
-            # Firma alternativa sin 'anticipo'
             ticket_path = generar_ticket_ingreso_reparacion(
                 ingreso=ingreso_dict,
                 tipo_pago=tipo_pago,
@@ -119,7 +115,6 @@ async def crear_ingreso_reparacion(request: Request, db: Session = Depends(get_d
         ticket_name = os.path.basename(ticket_path)
         ticket_url = f"/ingreso/ingreso_reparacion/ticket/{ticket_name}"
 
-        # Respuesta
         return {
             "ingreso": ingreso_dict,
             "id": getattr(ingreso, "id", None),
