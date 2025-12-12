@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 import logging
 import os
+from utils.ticket_counter import obtener_siguiente_numero_ticket
 
 logger = logging.getLogger(__name__)
 
@@ -139,9 +140,14 @@ def generar_ticket_ingreso_reparacion(
     articulo = articulo or "Artículo"
     falla_descripcion = falla_descripcion or "No especificada"
 
+    
     tickets_dir = _get_tickets_dir(path)
-    timestamp = fecha_ingreso.strftime("%Y%m%d_%H%M%S")
-    nombre_archivo = tickets_dir / f"ticket_ingreso_reparacion_{timestamp}.pdf"
+
+# obtener número del ticket (1..100)
+    numero_ticket = obtener_siguiente_numero_ticket(tickets_dir)
+
+# nombre del archivo usando la numeración rotativa
+    nombre_archivo = tickets_dir / f"ticket_ingreso_reparacion_{numero_ticket}.pdf"
 
     ancho, alto = A5
     margin = 10 * mm
