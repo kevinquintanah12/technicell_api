@@ -1,23 +1,37 @@
-# routers/equipos.py
 import uuid
 import json
 from pathlib import Path
 from typing import List, Optional
 
 import qrcode
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, status, Request
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    UploadFile,
+    File,
+    Query,
+    status,
+    Request,
+)
 from sqlalchemy.orm import Session
 
 from database import SessionLocal, engine, Base
-from schemas.equipo import EquipoCreate, EquipoUpdate, EquipoOut
+from schemas.equipo import (
+    EquipoCreate,
+    EquipoUpdate,
+    EquipoOut,
+    EquipoNotificar,
+)
 from crud import equipos as crud_equipos
 
 Base.metadata.create_all(bind=engine)
 
 router = APIRouter(prefix="/equipos", tags=["Equipos"])
 
+
 # =====================================================
-# Carpetas de fotos / QR
+# Carpetas
 # =====================================================
 UPLOAD_DIR = Path("static/uploads/equipos")
 QR_DIR = Path("static/qrs/equipos")
@@ -60,7 +74,7 @@ def crear_equipo(payload: EquipoCreate, request: Request, db: Session = Depends(
 
 
 # =====================================================
-# 🔍 LISTAR EQUIPOS CON FILTRO
+# 🔍 LISTAR EQUIPOS
 # =====================================================
 @router.get("/", response_model=List[EquipoOut])
 def listar_equipos(
@@ -83,7 +97,7 @@ def listar_equipos(
 
 
 # =====================================================
-# 🔍 RUTAS ESTÁTICAS (DEBEN IR ANTES DE {equipo_id})
+# FILTROS RÁPIDOS
 # =====================================================
 @router.get("/pendientes", response_model=List[EquipoOut])
 def equipos_pendientes(db: Session = Depends(get_db)):
@@ -110,7 +124,6 @@ async def subir_fotos_ultimo(
     back: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-
     for f in (front, back):
         if not f.content_type.startswith("image/"):
             raise HTTPException(status_code=400, detail="Ambos archivos deben ser imágenes")
@@ -118,7 +131,6 @@ async def subir_fotos_ultimo(
     saved = []
 
     try:
-        # FRONT
         ext_front = Path(front.filename).suffix.lower()
         name_front = f"{uuid.uuid4().hex}{ext_front}"
         path_front = UPLOAD_DIR / name_front
@@ -127,7 +139,6 @@ async def subir_fotos_ultimo(
         url_front = absolute_url(request, f"/static/uploads/equipos/{name_front}")
         saved.append(path_front)
 
-        # BACK
         ext_back = Path(back.filename).suffix.lower()
         name_back = f"{uuid.uuid4().hex}{ext_back}"
         path_back = UPLOAD_DIR / name_back
@@ -138,8 +149,6 @@ async def subir_fotos_ultimo(
 
         ultimo = crud_equipos.get_last_equipo(db)
         if not ultimo:
-            for p in saved:
-                p.unlink(missing_ok=True)
             raise HTTPException(status_code=404, detail="No hay equipos registrados")
 
         json_fotos = json.dumps({"front": url_front, "back": url_back})
@@ -152,7 +161,7 @@ async def subir_fotos_ultimo(
 
 
 # =====================================================
-# 📸 SUBIR FOTO A EQUIPO ESPECÍFICO
+# 📸 SUBIR FOTO A EQUIPO
 # =====================================================
 @router.post("/{equipo_id}/foto", response_model=EquipoOut)
 async def subir_foto_equipo(
@@ -161,7 +170,6 @@ async def subir_foto_equipo(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="El archivo debe ser una imagen")
 
@@ -183,26 +191,69 @@ async def subir_foto_equipo(
         return res
 
     except Exception as e:
-        try:
-            path.unlink(missing_ok=True)
-        except:
-            pass
+        path.unlink(missing_ok=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
 # =====================================================
-# 🔍 OBTENER EQUIPO POR ID
-# (Siempre al final)
+# 🔄 CAMBIOS DE ESTADO
+# =====================================================
+def _update_estado(db, equipo_id: int, estado: str):
+    payload = EquipoUpdate(estado=estado)
+    obj = crud_equipos.update_equipo(db, equipo_id, payload)
+    if not obj:
+        raise HTTPException(status_code=404, detail="Equipo no encontrado")
+    return obj
+
+
+@router.put("/{equipo_id}/reparando", response_model=EquipoOut)
+def marcar_reparando(equipo_id: int, db: Session = Depends(get_db)):
+    return _update_estado(db, equipo_id, "en_reparacion")
+
+
+@router.put("/{equipo_id}/listo", response_model=EquipoOut)
+def marcar_listo(equipo_id: int, db: Session = Depends(get_db)):
+    return _update_estado(db, equipo_id, "listo")
+
+
+# =====================================================
+# 📣 NOTIFICAR CLIENTE (EMAIL / PHONE)
+# =====================================================
+@router.post("/{equipo_id}/notificar", status_code=status.HTTP_200_OK)
+def notificar_equipo(
+    equipo_id: int,
+    payload: EquipoNotificar,
+    db: Session = Depends(get_db),
+):
+    equipo = crud_equipos.get_equipo(db, equipo_id)
+    if not equipo:
+        raise HTTPException(status_code=404, detail="Equipo no encontrado")
+
+    if "email" in payload.via and not equipo.cliente_correo:
+        raise HTTPException(
+            status_code=400,
+            detail="El equipo no tiene correo registrado",
+        )
+
+    # 🚨 AQUÍ NO SE ENVÍA NADA
+    # Solo se deja listo para integrar:
+    # - servicio de correo
+    # - SMS / WhatsApp
+    # - logs
+
+    return {
+        "equipo_id": equipo.id,
+        "estado": equipo.estado,
+        "notificado_via": payload.via,
+        "message": payload.message,
+    }
+
+
+# =====================================================
+# 🔍 OBTENER POR ID
 # =====================================================
 @router.get("/{equipo_id}", response_model=EquipoOut)
 def obtener_equipo(equipo_id: int, db: Session = Depends(get_db)):
-
-    # Protección extra contra llamadas con espacios o texto
-    if isinstance(equipo_id, str):
-        cleaned = equipo_id.strip()
-        if not cleaned.isdigit():
-            raise HTTPException(status_code=400, detail="El ID debe ser un número entero válido")
-
     obj = crud_equipos.get_equipo(db, equipo_id)
     if not obj:
         raise HTTPException(status_code=404, detail="Equipo no encontrado")

@@ -1,9 +1,11 @@
-# schemas/equipo.py
 from typing import List, Optional, Literal
 from pydantic import BaseModel, Field, validator, EmailStr
 from datetime import datetime
 
 
+# ============================
+# ESTADOS DEL EQUIPO
+# ============================
 EstadoEquipoLiteral = Literal[
     "recibido",
     "diagnostico",
@@ -15,6 +17,9 @@ EstadoEquipoLiteral = Literal[
 ]
 
 
+# ============================
+# BASE
+# ============================
 class EquipoBase(BaseModel):
     cliente_nombre: str = Field(..., min_length=1)
     cliente_numero: str = Field(..., min_length=8)
@@ -31,11 +36,10 @@ class EquipoBase(BaseModel):
 
     @validator("imei")
     def validar_imei(cls, v):
-        # Si IMEI es None o "", NO validar
+        # Permitir vacío o None
         if v is None or v.strip() == "":
             return None
 
-        # Validación real solo si trae contenido
         if not v.isdigit():
             raise ValueError("El IMEI debe contener solo números")
 
@@ -45,10 +49,16 @@ class EquipoBase(BaseModel):
         return v
 
 
+# ============================
+# CREATE
+# ============================
 class EquipoCreate(EquipoBase):
     pass
 
 
+# ============================
+# UPDATE
+# ============================
 class EquipoUpdate(BaseModel):
     cliente_nombre: Optional[str] = None
     cliente_numero: Optional[str] = None
@@ -78,6 +88,9 @@ class EquipoUpdate(BaseModel):
         return v
 
 
+# ============================
+# RESPONSE
+# ============================
 class EquipoOut(BaseModel):
     id: int
 
@@ -98,3 +111,21 @@ class EquipoOut(BaseModel):
 
     class Config:
         orm_mode = True
+
+
+# ==================================================
+# NOTIFICACIONES (EXCLUSIVO DE EQUIPOS)
+# ==================================================
+class EquipoNotificar(BaseModel):
+    """
+    Schema exclusivo para notificar el estado de un equipo.
+    Usado para correo / SMS / WhatsApp (según se implemente).
+
+    Ejemplo de body:
+    {
+        "via": ["email"],
+        "message": "Su equipo ha pasado a estado EN REPARACIÓN"
+    }
+    """
+    via: List[Literal["email", "phone"]]
+    message: Optional[str] = None
