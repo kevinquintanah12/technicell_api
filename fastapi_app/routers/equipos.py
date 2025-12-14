@@ -2,7 +2,7 @@ import uuid
 import json
 from pathlib import Path
 from typing import List, Optional
-
+from services.email_equipo import enviar_email_reparacion  
 import qrcode
 from fastapi import (
     APIRouter,
@@ -214,7 +214,7 @@ def notificar_equipo(
                 detail="El equipo no tiene correo registrado",
             )
 
-        enviar_email(
+        enviar_email_reparacion(
             destinatario=equipo.cliente_correo,
             asunto="Estado de tu equipo",
             mensaje=payload.message,
