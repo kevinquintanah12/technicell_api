@@ -8,7 +8,9 @@ from models.equipo import Equipo
 from schemas.equipo import EquipoCreate, EquipoUpdate
 from crud.client import get_or_create_client
 
-# Estados válidos
+# ==========================
+# ESTADOS VÁLIDOS
+# ==========================
 VALID_ESTADOS = [
     "recibido",
     "diagnostico",
@@ -16,7 +18,7 @@ VALID_ESTADOS = [
     "listo",
     "entregado",
     "cancelado",
-    "pendientes"  # 👈 agregado
+    "pendientes",
 ]
 
 # =====================================================
@@ -27,7 +29,7 @@ def create_equipo(db: Session, payload: EquipoCreate) -> Equipo:
         db=db,
         nombre=payload.cliente_nombre,
         telefono=payload.cliente_numero,
-        correo=payload.cliente_correo
+        correo=payload.cliente_correo,
     )
 
     estado = payload.estado if payload.estado in VALID_ESTADOS else "pendientes"
@@ -46,25 +48,26 @@ def create_equipo(db: Session, payload: EquipoCreate) -> Equipo:
         articulos_entregados=payload.articulos_entregados or [],
         estado=estado,
         imei=payload.imei,
-        fecha_ingreso=datetime.now()
+
+        fecha_ingreso=datetime.utcnow(),
+        archived=False,
     )
 
     db.add(db_equipo)
     db.commit()
     db.refresh(db_equipo)
-
     return db_equipo
 
 
 # =====================================================
-# 🔹 Obtener equipo por ID
+# 🔹 Obtener equipo por ID (incluye archivados)
 # =====================================================
 def get_equipo(db: Session, equipo_id: int) -> Optional[Equipo]:
     return db.get(Equipo, equipo_id)
 
 
 # =====================================================
-# 🔹 Listar equipos con filtros
+# 🔹 Listar equipos ACTIVOS (NO archivados)
 # =====================================================
 def list_equipos(
     db: Session,
@@ -74,7 +77,7 @@ def list_equipos(
     estado: Optional[str] = None,
 ) -> List[Equipo]:
 
-    stmt = select(Equipo)
+    stmt = select(Equipo).where(Equipo.archived == False)
 
     if cliente_nombre:
         stmt = stmt.where(Equipo.cliente_nombre.ilike(f"%{cliente_nombre}%"))
@@ -86,25 +89,33 @@ def list_equipos(
             stmt = stmt.where(Equipo.id == -1)
 
     stmt = stmt.order_by(Equipo.fecha_ingreso.desc()).offset(skip).limit(limit)
-
     return list(db.execute(stmt).scalars())
 
 
 # =====================================================
-# 🔹 Buscar por nombre del cliente
+# 🔹 Buscar equipos activos por nombre de cliente
 # =====================================================
 def get_equipos_by_cliente_nombre(db: Session, nombre: str) -> List[Equipo]:
-    stmt = select(Equipo).where(Equipo.cliente_nombre.ilike(f"%{nombre}%"))
-    stmt = stmt.order_by(Equipo.fecha_ingreso.desc())
+    stmt = (
+        select(Equipo)
+        .where(
+            Equipo.archived == False,
+            Equipo.cliente_nombre.ilike(f"%{nombre}%"),
+        )
+        .order_by(Equipo.fecha_ingreso.desc())
+    )
     return list(db.execute(stmt).scalars())
 
 
 # =====================================================
 # 🔹 Actualizar equipo
 # =====================================================
-def update_equipo(db: Session, equipo_id: int, payload: EquipoUpdate) -> Optional[Equipo]:
+def update_equipo(
+    db: Session, equipo_id: int, payload: EquipoUpdate
+) -> Optional[Equipo]:
+
     equipo = db.get(Equipo, equipo_id)
-    if not equipo:
+    if not equipo or equipo.archived:
         return None
 
     for key, value in payload.dict(exclude_unset=True).items():
@@ -118,14 +129,55 @@ def update_equipo(db: Session, equipo_id: int, payload: EquipoUpdate) -> Optiona
 
 
 # =====================================================
-# 🔹 Borrar equipo
+# 🔹 MARCAR EQUIPO COMO LISTO (🔥 CLAVE 🔥)
+# =====================================================
+def marcar_equipo_listo(
+    db: Session,
+    equipo_id: int,
+    archivar: bool = True,
+) -> Optional[Equipo]:
+
+    equipo = db.get(Equipo, equipo_id)
+    if not equipo or equipo.archived:
+        return None
+
+    equipo.estado = "listo"
+    equipo.fecha_entrega = datetime.utcnow()
+
+    if archivar:
+        equipo.archived = True
+
+    db.commit()
+    db.refresh(equipo)
+    return equipo
+
+
+# =====================================================
+# 🔹 Cancelar equipo (también se archiva)
+# =====================================================
+def cancelar_equipo(db: Session, equipo_id: int) -> Optional[Equipo]:
+    equipo = db.get(Equipo, equipo_id)
+    if not equipo or equipo.archived:
+        return None
+
+    equipo.estado = "cancelado"
+    equipo.archived = True
+    equipo.fecha_entrega = datetime.utcnow()
+
+    db.commit()
+    db.refresh(equipo)
+    return equipo
+
+
+# =====================================================
+# 🔹 Borrado lógico (NO se elimina de BD)
 # =====================================================
 def delete_equipo(db: Session, equipo_id: int) -> bool:
     equipo = db.get(Equipo, equipo_id)
     if not equipo:
         return False
 
-    db.delete(equipo)
+    equipo.archived = True
     db.commit()
     return True
 
@@ -135,7 +187,7 @@ def delete_equipo(db: Session, equipo_id: int) -> bool:
 # =====================================================
 def set_equipo_qr(db: Session, equipo_id: int, qr_url: str) -> Optional[Equipo]:
     equipo = db.get(Equipo, equipo_id)
-    if not equipo:
+    if not equipo or equipo.archived:
         return None
 
     equipo.qr_url = qr_url
@@ -145,11 +197,11 @@ def set_equipo_qr(db: Session, equipo_id: int, qr_url: str) -> Optional[Equipo]:
 
 
 # =====================================================
-# 🔹 Guardar foto única
+# 🔹 Guardar foto
 # =====================================================
 def set_equipo_foto(db: Session, equipo_id: int, foto_url: str) -> Optional[Equipo]:
     equipo = db.get(Equipo, equipo_id)
-    if not equipo:
+    if not equipo or equipo.archived:
         return None
 
     equipo.foto_url = foto_url
@@ -159,19 +211,27 @@ def set_equipo_foto(db: Session, equipo_id: int, foto_url: str) -> Optional[Equi
 
 
 # =====================================================
-# 🔹 Obtener último equipo creado
+# 🔹 Obtener último equipo ACTIVO
 # =====================================================
 def get_last_equipo(db: Session) -> Optional[Equipo]:
-    stmt = select(Equipo).order_by(Equipo.id.desc()).limit(1)
+    stmt = (
+        select(Equipo)
+        .where(Equipo.archived == False)
+        .order_by(Equipo.id.desc())
+        .limit(1)
+    )
     return db.execute(stmt).scalars().first()
 
 
 # =====================================================
-# 🔹 Guardar JSON con front + back
+# 🔹 Guardar JSON (front + back)
 # =====================================================
-def set_equipo_foto_json(db: Session, equipo_id: int, fotos_json: str) -> Optional[Equipo]:
+def set_equipo_foto_json(
+    db: Session, equipo_id: int, fotos_json: str
+) -> Optional[Equipo]:
+
     equipo = db.get(Equipo, equipo_id)
-    if not equipo:
+    if not equipo or equipo.archived:
         return None
 
     try:

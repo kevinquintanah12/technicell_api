@@ -31,7 +31,7 @@ router = APIRouter(prefix="/equipos", tags=["Equipos"])
 
 
 # =====================================================
-# Carpetas
+# 📂 CARPETAS
 # =====================================================
 UPLOAD_DIR = Path("static/uploads/equipos")
 QR_DIR = Path("static/qrs/equipos")
@@ -40,7 +40,7 @@ QR_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # =====================================================
-# DB
+# 🗄️ DB
 # =====================================================
 def get_db():
     db = SessionLocal()
@@ -60,7 +60,11 @@ def absolute_url(request: Request, relative_path: str) -> str:
 # 🚀 CREAR EQUIPO
 # =====================================================
 @router.post("/", response_model=EquipoOut, status_code=status.HTTP_201_CREATED)
-def crear_equipo(payload: EquipoCreate, request: Request, db: Session = Depends(get_db)):
+def crear_equipo(
+    payload: EquipoCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+):
     equipo = crud_equipos.create_equipo(db, payload)
     if not equipo:
         raise HTTPException(status_code=400, detail="No se pudo crear el equipo")
@@ -74,7 +78,7 @@ def crear_equipo(payload: EquipoCreate, request: Request, db: Session = Depends(
 
 
 # =====================================================
-# 🔍 LISTAR EQUIPOS
+# 🔍 LISTAR EQUIPOS (SOLO ACTIVOS)
 # =====================================================
 @router.get("/", response_model=List[EquipoOut])
 def listar_equipos(
@@ -88,7 +92,7 @@ def listar_equipos(
         return crud_equipos.get_equipos_by_cliente_nombre(db, nombre_cliente)
 
     return crud_equipos.list_equipos(
-        db,
+        db=db,
         skip=skip,
         limit=limit,
         cliente_nombre=nombre_cliente,
@@ -97,7 +101,7 @@ def listar_equipos(
 
 
 # =====================================================
-# FILTROS RÁPIDOS
+# ⚡ FILTROS RÁPIDOS
 # =====================================================
 @router.get("/pendientes", response_model=List[EquipoOut])
 def equipos_pendientes(db: Session = Depends(get_db)):
@@ -109,13 +113,8 @@ def equipos_en_reparacion(db: Session = Depends(get_db)):
     return crud_equipos.list_equipos(db, estado="en_reparacion")
 
 
-@router.get("/entregados", response_model=List[EquipoOut])
-def equipos_entregados(db: Session = Depends(get_db)):
-    return crud_equipos.list_equipos(db, estado="entregado")
-
-
 # =====================================================
-# 📸 SUBIR DOS FOTOS AL ÚLTIMO EQUIPO
+# 📸 SUBIR FOTOS AL ÚLTIMO EQUIPO
 # =====================================================
 @router.post("/fotos/ultimo", response_model=EquipoOut)
 async def subir_fotos_ultimo(
@@ -161,63 +160,40 @@ async def subir_fotos_ultimo(
 
 
 # =====================================================
-# 📸 SUBIR FOTO A EQUIPO
-# =====================================================
-@router.post("/{equipo_id}/foto", response_model=EquipoOut)
-async def subir_foto_equipo(
-    equipo_id: int,
-    request: Request,
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db),
-):
-    if not file.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="El archivo debe ser una imagen")
-
-    ext = Path(file.filename).suffix.lower()
-    filename = f"{uuid.uuid4().hex}{ext}"
-    path = UPLOAD_DIR / filename
-
-    try:
-        with open(path, "wb") as f:
-            f.write(await file.read())
-
-        url = absolute_url(request, f"/static/uploads/equipos/{filename}")
-        res = crud_equipos.set_equipo_foto(db, equipo_id, url)
-
-        if not res:
-            path.unlink(missing_ok=True)
-            raise HTTPException(status_code=404, detail="Equipo no encontrado")
-
-        return res
-
-    except Exception as e:
-        path.unlink(missing_ok=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# =====================================================
 # 🔄 CAMBIOS DE ESTADO
 # =====================================================
-def _update_estado(db, equipo_id: int, estado: str):
-    payload = EquipoUpdate(estado=estado)
+@router.patch("/{equipo_id}/reparando", response_model=EquipoOut)
+def marcar_reparando(equipo_id: int, db: Session = Depends(get_db)):
+    payload = EquipoUpdate(estado="en_reparacion")
     obj = crud_equipos.update_equipo(db, equipo_id, payload)
     if not obj:
         raise HTTPException(status_code=404, detail="Equipo no encontrado")
     return obj
 
 
-@router.put("/{equipo_id}/reparando", response_model=EquipoOut)
-def marcar_reparando(equipo_id: int, db: Session = Depends(get_db)):
-    return _update_estado(db, equipo_id, "en_reparacion")
-
-
-@router.put("/{equipo_id}/listo", response_model=EquipoOut)
+# 🔥 ESTE ES EL IMPORTANTE 🔥
+@router.patch("/{equipo_id}/listo", response_model=EquipoOut)
 def marcar_listo(equipo_id: int, db: Session = Depends(get_db)):
-    return _update_estado(db, equipo_id, "listo")
+    """
+    Marca el equipo como LISTO y lo ARCHIVA para que
+    deje de aparecer en la lista principal
+    """
+    obj = crud_equipos.marcar_equipo_listo(db, equipo_id)
+    if not obj:
+        raise HTTPException(status_code=404, detail="Equipo no encontrado")
+    return obj
+
+
+@router.patch("/{equipo_id}/cancelar", response_model=EquipoOut)
+def cancelar_equipo(equipo_id: int, db: Session = Depends(get_db)):
+    obj = crud_equipos.cancelar_equipo(db, equipo_id)
+    if not obj:
+        raise HTTPException(status_code=404, detail="Equipo no encontrado")
+    return obj
 
 
 # =====================================================
-# 📣 NOTIFICAR CLIENTE (EMAIL / PHONE)
+# 📣 NOTIFICAR CLIENTE
 # =====================================================
 @router.post("/{equipo_id}/notificar", status_code=status.HTTP_200_OK)
 def notificar_equipo(
@@ -235,12 +211,6 @@ def notificar_equipo(
             detail="El equipo no tiene correo registrado",
         )
 
-    # 🚨 AQUÍ NO SE ENVÍA NADA
-    # Solo se deja listo para integrar:
-    # - servicio de correo
-    # - SMS / WhatsApp
-    # - logs
-
     return {
         "equipo_id": equipo.id,
         "estado": equipo.estado,
@@ -250,7 +220,7 @@ def notificar_equipo(
 
 
 # =====================================================
-# 🔍 OBTENER POR ID
+# 🔍 OBTENER POR ID (INCLUYE ARCHIVADOS)
 # =====================================================
 @router.get("/{equipo_id}", response_model=EquipoOut)
 def obtener_equipo(equipo_id: int, db: Session = Depends(get_db)):
@@ -261,16 +231,23 @@ def obtener_equipo(equipo_id: int, db: Session = Depends(get_db)):
 
 
 # =====================================================
-# ✏️ ACTUALIZAR / ELIMINAR
+# ✏️ ACTUALIZAR
 # =====================================================
 @router.patch("/{equipo_id}", response_model=EquipoOut)
-def actualizar_equipo(equipo_id: int, payload: EquipoUpdate, db: Session = Depends(get_db)):
+def actualizar_equipo(
+    equipo_id: int,
+    payload: EquipoUpdate,
+    db: Session = Depends(get_db),
+):
     obj = crud_equipos.update_equipo(db, equipo_id, payload)
     if not obj:
         raise HTTPException(status_code=404, detail="Equipo no encontrado")
     return obj
 
 
+# =====================================================
+# 🗑️ ELIMINAR (BORRADO LÓGICO)
+# =====================================================
 @router.delete("/{equipo_id}", status_code=status.HTTP_204_NO_CONTENT)
 def eliminar_equipo(equipo_id: int, db: Session = Depends(get_db)):
     ok = crud_equipos.delete_equipo(db, equipo_id)
