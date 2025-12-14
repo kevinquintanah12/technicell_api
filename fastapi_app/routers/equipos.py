@@ -221,7 +221,7 @@ def notificar_equipo(
             cliente_nombre=equipo.cliente_nombre,
             ticket_id=str(equipo.id),
             modelo=equipo.modelo,
-            falla=equipo.falla,
+            falla=equipo.fallo,
         )
 
         
