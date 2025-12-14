@@ -205,18 +205,29 @@ def notificar_equipo(
     if not equipo:
         raise HTTPException(status_code=404, detail="Equipo no encontrado")
 
-    if "email" in payload.via and not equipo.cliente_correo:
-        raise HTTPException(
-            status_code=400,
-            detail="El equipo no tiene correo registrado",
+    enviados = []
+
+    if "email" in payload.via:
+        if not equipo.cliente_correo:
+            raise HTTPException(
+                status_code=400,
+                detail="El equipo no tiene correo registrado",
+            )
+
+        enviar_email(
+            destinatario=equipo.cliente_correo,
+            asunto="Estado de tu equipo",
+            mensaje=payload.message,
         )
+        enviados.append("email")
 
     return {
         "equipo_id": equipo.id,
         "estado": equipo.estado,
-        "notificado_via": payload.via,
+        "notificado_via": enviados,
         "message": payload.message,
     }
+
 
 
 # =====================================================
