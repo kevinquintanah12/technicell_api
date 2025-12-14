@@ -215,10 +215,16 @@ def notificar_equipo(
             )
 
         enviar_email_reparacion(
-            destinatario=equipo.cliente_correo,
+            to_email=equipo.cliente_correo,
             asunto="Estado de tu equipo",
-            mensaje=payload.message,
+
+            cliente_nombre=equipo.cliente_nombre,
+            ticket_id=str(equipo.id),
+            modelo=equipo.modelo,
+            falla=equipo.falla,
         )
+
+        
         enviados.append("email")
 
     return {
