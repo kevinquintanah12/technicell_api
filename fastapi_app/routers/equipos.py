@@ -216,7 +216,6 @@ def notificar_equipo(
 
         enviar_email_reparacion(
             to_email=equipo.cliente_correo,
-            asunto="Estado de tu equipo",
 
             cliente_nombre=equipo.cliente_nombre,
             ticket_id=str(equipo.id),

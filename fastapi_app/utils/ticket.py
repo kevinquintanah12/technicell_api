@@ -1,4 +1,3 @@
-# utils/tickets_reparacion.py
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import mm
@@ -135,6 +134,211 @@ def _draw_header_simple(
     return y
 
 
+# ----------------- NUEVAS FUNCIONES PARA ESC/POS -----------------
+# Estas funciones intentan usar python-escpos (escpos.printer)
+# Si la librería no está disponible, lanzan una excepción clara.
+
+
+def _ensure_escpos_available():
+    try:
+        import escpos.printer as _escpos_printer  # type: ignore
+        return _escpos_printer
+    except Exception as e:
+        raise RuntimeError(
+            "La librería 'python-escpos' no está disponible. Instálala con: pip install python-escpos Pillow"
+        ) from e
+
+
+def _print_escpos_with_printer(
+    p,
+    cliente_nombre: str,
+    contacto: Optional[str],
+    articulo: str,
+    modelo: Optional[str],
+    serie: Optional[str],
+    falla_descripcion: str,
+    observaciones: Optional[str],
+    anticipo: float,
+    total: float,
+    equipo_id: Optional[int],
+    company_name: str,
+    logo_full: Optional[Path] = None,
+):
+    """
+    Envía los textos a la impresora ya conectada (objeto escpos.printer.*).
+    """
+    try:
+        # Cabecera
+        try:
+            p.set(align="center", bold=True, height=2, width=2)
+        except Exception:
+            try:
+                p.set(align="center", bold=True)
+            except Exception:
+                pass
+        p.text(f"{company_name}\n")
+        p.text("Ingreso de reparación\n")
+        p.text("-" * 32 + "\n")
+
+        # Logo (intentar)
+        if logo_full and logo_full.exists():
+            try:
+                p.image(str(logo_full))
+            except Exception:
+                # algunos backends requieren PIL.Image
+                try:
+                    from PIL import Image
+
+                    im = Image.open(str(logo_full))
+                    p.image(im)
+                except Exception:
+                    logger.debug("No se pudo imprimir logo en ESC/POS (se omitirá)")
+
+        if equipo_id:
+            p.text(f"ID Equipo: {equipo_id}\n")
+
+        p.text(f"Cliente: {cliente_nombre}\n")
+        if contacto:
+            p.text(f"Contacto: {contacto}\n")
+
+        p.text(f"Articulo: {articulo}\n")
+        if modelo:
+            p.text(f"Modelo: {modelo}\n")
+        if serie:
+            p.text(f"Serie/IMEI: {serie}\n")
+
+        p.text("\nFalla:\n")
+        p.text(f"{falla_descripcion}\n")
+
+        if observaciones:
+            p.text("\nObs:\n")
+            p.text(f"{observaciones}\n")
+
+        p.text("-" * 32 + "\n")
+        if total and float(total):
+            p.text(f"Total estimado: ${float(total):.2f}\n")
+        if anticipo and float(anticipo):
+            p.text(f"Anticipo: ${float(anticipo):.2f}\n")
+
+        p.text("-" * 32 + "\n")
+        p.text(datetime.now().strftime("%d/%m/%Y %H:%M") + "\n")
+
+        p.feed(3)
+        try:
+            p.cut()
+        except Exception:
+            # Algunos dispositivos no soportan cut()
+            pass
+
+    except Exception as e:
+        logger.exception("Error imprimiendo en impresora ESC/POS: %s", e)
+        raise
+
+
+def imprimir_ticket_escpos_from_data(
+    cliente_nombre: str,
+    contacto: Optional[str],
+    articulo: str,
+    modelo: Optional[str],
+    serie: Optional[str],
+    falla_descripcion: str,
+    observaciones: Optional[str],
+    anticipo: float,
+    total: float,
+    equipo_id: Optional[int],
+    company_name: str,
+    logo_full: Optional[Path],
+    thermal_options: Dict[str, Any],
+):
+    """
+    Conecta a la impresora térmica siguiendo thermal_options y envía el ticket.
+
+    thermal_options esperadas (ejemplos):
+      USB: {"type": "usb", "vid": 0x04b8, "pid": 0x0202, "in_ep": 0x82, "out_ep": 0x01}
+      NETWORK: {"type": "network", "host": "192.168.1.50", "port": 9100}
+
+    Lanza RuntimeError si falla la conexión o impresión.
+    """
+    escpos = _ensure_escpos_available()
+
+    ttype = thermal_options.get("type", "network").lower()
+    p = None
+    try:
+        if ttype == "usb":
+            vid = int(thermal_options.get("vid"))
+            pid = int(thermal_options.get("pid"))
+            in_ep = thermal_options.get("in_ep")
+            out_ep = thermal_options.get("out_ep")
+            # Usb signature: Usb(vid, pid, timeout=0, in_ep=0x82, out_ep=0x01)
+            if in_ep is not None and out_ep is not None:
+                p = escpos.printer.Usb(vid, pid, in_ep=in_ep, out_ep=out_ep)
+            else:
+                p = escpos.printer.Usb(vid, pid)
+
+        elif ttype == "network":
+            host = thermal_options.get("host")
+            port = int(thermal_options.get("port", 9100))
+            p = escpos.printer.Network(host, port=port)
+
+        elif ttype == "file":
+            # Especial: escribir RAW bytes a un archivo (útil para debugging o para enviar a puerto)
+            fname = thermal_options.get("path", "/tmp/escpos_out.bin")
+            class FilePrinter:
+                def __init__(self, path):
+                    self._f = open(path, "ab")
+
+                def text(self, txt):
+                    self._f.write(txt.encode("utf-8", errors="replace"))
+
+                def image(self, *a, **k):
+                    pass
+
+                def feed(self, n=1):
+                    self._f.write(b"\n" * n)
+
+                def cut(self):
+                    pass
+
+                def close(self):
+                    self._f.close()
+
+            p = FilePrinter(fname)
+
+        else:
+            raise RuntimeError(f"Tipo de conexión térmica desconocido: {ttype}")
+
+        # enviar contenido
+        _print_escpos_with_printer(
+            p,
+            cliente_nombre,
+            contacto,
+            articulo,
+            modelo,
+            serie,
+            falla_descripcion,
+            observaciones,
+            anticipo,
+            total,
+            equipo_id,
+            company_name,
+            logo_full,
+        )
+
+        try:
+            # cerrar si tiene método close
+            if hasattr(p, "close"):
+                p.close()
+        except Exception:
+            pass
+
+    except Exception as e:
+        logger.exception("Fallo al conectar/imprimir en impresora térmica: %s", e)
+        raise RuntimeError(f"Error imprimiendo en impresora térmica: {e}") from e
+
+
+# ----------------- FIN NUEVAS FUNCIONES ESC/POS -----------------
+
+
 def generar_ticket_ingreso_reparacion(
     cliente_nombre: Optional[str] = None,
     contacto: Optional[str] = None,
@@ -157,12 +361,21 @@ def generar_ticket_ingreso_reparacion(
     ingreso: Optional[Dict[str, Any]] = None,
     equipo_id: Optional[int] = None,
     ticket_name: Optional[str] = None,  # <-- nuevo parámetro opcional que puede venir de Flutter
+    # NUEVOS PARAMS
+    print_thermal: bool = False,
+    thermal_options: Optional[Dict[str, Any]] = None,
+    throw_on_print_error: bool = False,
 ) -> str:
     """
     Genera un ticket PDF de ingreso/recepción para reparación.
     Si se provee `ticket_name`, se usa (después de sanitizar). Si no, se genera
     un nombre por defecto usando el número de ticket y (opcional) equipo_id.
     Devuelve la ruta absoluta al archivo creado.
+
+    Si `print_thermal` es True, intentará además imprimir en una impresora térmica
+    usando `thermal_options`. Por defecto, cualquier fallo de impresión se registrará
+    y no impedirá la creación del PDF; si `throw_on_print_error` es True, entonces
+    se lanzará RuntimeError en caso de fallo de impresión.
     """
     # Sobreescribir valores si ingreso es dict
     if ingreso and isinstance(ingreso, dict):
@@ -377,6 +590,34 @@ def generar_ticket_ingreso_reparacion(
         raise RuntimeError("No se pudo generar el ticket de ingreso (archivo vacío o inexistente)")
 
     logger.debug("Ticket ingreso generado: %s", nombre_archivo)
+
+    # Si se pidió impresión térmica, intentarlo (pero PDF ya generado)
+    if print_thermal:
+        try:
+            if not thermal_options:
+                raise RuntimeError("Se solicitó impresión térmica pero no se proporcionaron 'thermal_options'.")
+
+            # Llamada a la función que gestiona conexión e impresión
+            imprimir_ticket_escpos_from_data(
+                cliente_nombre=cliente_nombre,
+                contacto=contacto,
+                articulo=articulo,
+                modelo=modelo,
+                serie=serie,
+                falla_descripcion=falla_descripcion,
+                observaciones=observaciones,
+                anticipo=anticipo or 0.0,
+                total=total or 0.0,
+                equipo_id=equipo_id,
+                company_name=company_name,
+                logo_full=logo_full if logo_full.exists() else None,
+                thermal_options=thermal_options,
+            )
+        except Exception as e:
+            logger.exception("Fallo en impresión térmica: %s", e)
+            if throw_on_print_error:
+                raise
+
     return str(nombre_archivo)
 
 
