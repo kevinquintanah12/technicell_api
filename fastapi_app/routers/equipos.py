@@ -214,16 +214,22 @@ def notificar_equipo(
                 detail="El equipo no tiene correo registrado",
             )
 
-        enviar_email_reparacion(
-            to_email=equipo.cliente_correo,
+        try:
+            enviar_email_reparacion(
+                to_email=equipo.cliente_correo,
+                cliente_nombre=equipo.cliente_nombre,
+                ticket_id=str(equipo.id),
+                modelo=equipo.modelo,
+                falla=equipo.fallo,
+                message_from_front=payload.message,  # ✅ AQUÍ
+            )
+        except Exception as e:
+            print("❌ ERROR enviando correo:", e)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error enviando correo: {str(e)}"
+            )
 
-            cliente_nombre=equipo.cliente_nombre,
-            ticket_id=str(equipo.id),
-            modelo=equipo.modelo,
-            falla=equipo.fallo,
-        )
-
-        
         enviados.append("email")
 
     return {
