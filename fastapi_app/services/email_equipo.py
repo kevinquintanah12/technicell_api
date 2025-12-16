@@ -3,19 +3,6 @@ from typing import Optional
 from email.mime.text import MIMEText
 from html import escape
 
-# =========================
-# CONFIG SMTP (HARDCODED)
-# =========================
-SMTP_SERVER = "smtp.gmail.com"
-SMTP_PORT = 465
-SMTP_USER = "technicellorizaba@gmail.com"
-SMTP_PASS = "wvdh hbwt vdin ijxj"  # ⚠️ solo dev
-
-LOGO_URL = "https://i.imgur.com/4X0QZ2q.png"
-SUPPORT_PHONE = "+522711764587"
-SUPPORT_EMAIL = "technicellorizaba@gmail.com"
-FOLLOW_BASE_URL = "https://www.technicell.com"
-
 
 def enviar_email_reparacion(
     to_email: str,
@@ -25,11 +12,6 @@ def enviar_email_reparacion(
     falla: str,
     message_from_front: Optional[str] = None,
 ):
-    """
-    Envía el email HTML de notificación de 'EN REPARACIÓN'
-    (configuración idéntica al módulo GraphQL)
-    """
-
     # =========================
     # SANITIZAR
     # =========================
@@ -52,9 +34,9 @@ def enviar_email_reparacion(
     subject = "Technicell — Su equipo ha entrado en reparación"
 
     # =========================
-    # HTML TEMPLATE
+    # HTML
     # =========================
-    body_template = """<!doctype html>
+    body = f"""<!doctype html>
 <html lang="es">
 <head>
   <meta charset="utf-8">
@@ -62,9 +44,9 @@ def enviar_email_reparacion(
 </head>
 <body style="background:#f4f4f6;padding:20px;font-family:Arial">
   <div style="max-width:680px;margin:auto;background:#fff;border-radius:8px;padding:20px">
-    <h2 style="color:#6b46c1">Hola @@CLIENTE_NOMBRE@@ 👋</h2>
+    <h2 style="color:#6b46c1">Hola {cliente_nombre_safe} 👋</h2>
 
-    <p>Su equipo <strong>@@MODELO@@</strong> ha cambiado al estado:</p>
+    <p>Su equipo <strong>{modelo_safe}</strong> ha cambiado al estado:</p>
 
     <h3 style="color:#fff;background:#6b46c1;display:inline-block;padding:8px 14px;border-radius:20px">
       EN REPARACIÓN
@@ -72,48 +54,35 @@ def enviar_email_reparacion(
 
     <hr style="margin:20px 0">
 
-    <p><strong>Ticket:</strong> #@@TICKET_ID@@</p>
-    <p><strong>Falla reportada:</strong><br>@@FALLA@@</p>
+    <p><strong>Ticket:</strong> #{ticket_id_safe}</p>
+    <p><strong>Falla reportada:</strong><br>{falla_safe}</p>
 
-    @@MENSAJE_CUSTOM_HTML@@
+    {mensaje_html}
 
     <p style="margin-top:20px">
       Gracias por su preferencia.<br>
       <strong>Technicell</strong><br>
       Pte. 7 269, Centro, Orizaba
     </p>
-
-    <p style="font-size:13px;color:#666">
-      Soporte: @@SUPPORT_PHONE@@ · @@SUPPORT_EMAIL@@
-    </p>
   </div>
 </body>
 </html>
 """
 
-    body = (
-        body_template
-        .replace("@@CLIENTE_NOMBRE@@", cliente_nombre_safe)
-        .replace("@@TICKET_ID@@", ticket_id_safe)
-        .replace("@@MODELO@@", modelo_safe)
-        .replace("@@FALLA@@", falla_safe)
-        .replace("@@MENSAJE_CUSTOM_HTML@@", mensaje_html)
-        .replace("@@SUPPORT_PHONE@@", SUPPORT_PHONE)
-        .replace("@@SUPPORT_EMAIL@@", SUPPORT_EMAIL)
-    )
+    # =========================
+    # ENVÍO SIMPLE (IGUAL A GRAPHQL)
+    # =========================
+    sender_email = "technicellorizaba@gmail.com"
+    app_password = "wvdh hbwt vdin ijxj"
 
-    # =========================
-    # ENVIAR EMAIL (MISMO QUE GRAPHQL)
-    # =========================
     message = MIMEText(body, "html")
     message["Subject"] = subject
-    message["From"] = SMTP_USER
+    message["From"] = sender_email
     message["To"] = to_email
 
     try:
-        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
-            server.login(SMTP_USER, SMTP_PASS)
-            server.sendmail(SMTP_USER, [to_email], message.as_string())
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(sender_email, app_password)
+            server.sendmail(sender_email, [to_email], message.as_string())
     except Exception as e:
-        print(f"Error al enviar email de reparación: {e}")
-        raise
+        print(f"Error al enviar el correo: {e}")
