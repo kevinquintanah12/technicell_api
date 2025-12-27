@@ -6,8 +6,9 @@ Router completo para /equipos con:
 - subir fotos al último equipo
 - notificaciones por email
 - endpoints para decodificar QR (archivo multipart y base64)
-Requiere: pillow, pyzbar
-En Windows pyzbar necesita instalar zbar (choco install zbar)
+
+Requiere: pillow, opencv-python-headless, qrcode
+(opencv-python-headless evita dependencias del sistema en Render)
 """
 
 import uuid
@@ -19,7 +20,8 @@ from typing import List, Optional
 from datetime import datetime
 
 from PIL import Image, ImageOps
-from pyzbar.pyzbar import decode as zbar_decode
+import numpy as np
+import cv2
 
 from fastapi import (
     APIRouter,
@@ -80,9 +82,21 @@ def absolute_url(request: Request, relative_path: str) -> str:
 # =====================================================
 MAX_UPLOAD_SIZE = 5 * 1024 * 1024  # 5 MB
 
+# =====================================================
+# 🔧 Helpers para OpenCV
+# =====================================================
+_detector = cv2.QRCodeDetector()
+
+
+def pil_to_cv2_bgr(pil_image: Image.Image) -> np.ndarray:
+    """Convierte PIL Image -> OpenCV BGR numpy array"""
+    rgb = np.array(pil_image.convert("RGB"))
+    # PIL usa RGB, OpenCV suele usar BGR
+    return rgb[:, :, ::-1].copy()
+
 
 # =====================================================
-# 🧩 UTIL: Intenta decodificar QR con transformaciones
+# 🧩 UTIL: Intenta decodificar QR con transformaciones (OpenCV)
 # =====================================================
 def try_decode_qr(pil_image: Image.Image) -> Optional[str]:
     """
@@ -93,42 +107,55 @@ def try_decode_qr(pil_image: Image.Image) -> Optional[str]:
     - rotaciones 90/180/270
     Retorna el primer texto encontrado o None.
     """
-    methods: List[Image.Image] = []
+    candidates: List[Image.Image] = []
 
-    # versión base (convertida a RGB por caller normalmente)
-    methods.append(pil_image)
+    # versión base
+    try:
+        candidates.append(pil_image.convert("RGB"))
+    except Exception:
+        pass
 
     # grayscale + autocontrast
     try:
         g = ImageOps.grayscale(pil_image)
-        methods.append(g)
-        methods.append(ImageOps.autocontrast(pil_image))
+        candidates.append(g)
     except Exception:
         pass
 
-    # rotaciones (aplicar a la imagen base y a la autocontrast si existe)
     try:
         ac = ImageOps.autocontrast(pil_image)
-        bases = [pil_image, ac]
+        candidates.append(ac)
     except Exception:
-        bases = [pil_image]
+        pass
 
-    for base_img in bases:
-        for rot in (90, 180, 270):
+    # rotaciones (aplicar a la imagen base y a autocontrast si existe)
+    base_images = [candidates[0]] if candidates else []
+    if len(candidates) > 1:
+        base_images.extend([img for img in candidates[1:]])
+
+    for base_img in base_images:
+        for rot in (0, 90, 180, 270):
             try:
-                methods.append(base_img.rotate(rot, expand=True))
+                if rot == 0:
+                    img = base_img
+                else:
+                    img = base_img.rotate(rot, expand=True)
+                candidates.append(img)
             except Exception:
                 pass
 
-    for img in methods:
+    # ahora intentar decodificar cada candidato usando OpenCV
+    for img in candidates:
         try:
-            decoded = zbar_decode(img)
+            cv_img = pil_to_cv2_bgr(img)
+            # detectAndDecode devuelve (data, points, straight_qrcode)
+            data, points, _ = _detector.detectAndDecode(cv_img)
+            if data and isinstance(data, str) and data.strip():
+                return data.strip()
         except Exception:
-            decoded = []
-        if decoded:
-            data = decoded[0].data.decode("utf-8").strip()
-            if data:
-                return data
+            # ignorar y continuar con el siguiente intento
+            continue
+
     return None
 
 
@@ -150,7 +177,9 @@ def crear_equipo(
     qr_path = QR_DIR / qr_filename
     # Guardar QR (usa qrcode simple)
     import qrcode
-    qrcode.make(str(equipo.id)).save(qr_path)
+
+    img_qr = qrcode.make(str(equipo.id))
+    img_qr.save(qr_path)
 
     qr_url = absolute_url(request, f"/static/qrs/equipos/{qr_filename}")
 

@@ -6,8 +6,10 @@ email-validator
 python-multipart
 psycopg2-binary
 reportlab
-qrcode[pil]
 requests
 psycopg2-binary
 passlib[argon2]
-pyzbar
+opencv-python-headless
+Pillow
+qrcode[pil]
+
