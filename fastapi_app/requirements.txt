@@ -10,3 +10,4 @@ qrcode[pil]
 requests
 psycopg2-binary
 passlib[argon2]
+pyzbar
