@@ -4,7 +4,6 @@ from sqlalchemy import (
     String,
     JSON,
     DateTime,
-    UniqueConstraint,
     ForeignKey,
     Boolean,
 )
@@ -59,6 +58,9 @@ class Equipo(Base):
     modelo = Column(String, nullable=False)
     fallo = Column(String, nullable=False)
     observaciones = Column(String, nullable=True)
+
+    # 🔐 SEGURIDAD
+    tipo_clave = Column(String, nullable=False)  # PIN | Patrón | Contraseña
     clave_bloqueo = Column(String, nullable=True)
 
     articulos_entregados = Column(JSON, default=list)
@@ -97,7 +99,3 @@ class Equipo(Base):
     )
 
     cobros = relationship("Cobro", back_populates="equipo")
-
-    __table_args__ = (
-        UniqueConstraint("imei", name="uq_equipo_imei"),
-    )
