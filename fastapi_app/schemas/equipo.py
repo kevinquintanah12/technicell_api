@@ -1,3 +1,4 @@
+# schemas/equipo.py
 from typing import List, Optional, Literal
 from pydantic import BaseModel, Field, EmailStr, field_validator
 from datetime import datetime
@@ -45,12 +46,13 @@ class EquipoBase(BaseModel):
     imei: Optional[str] = None
     precio_estimado: Optional[float] = None
 
+    # Validadores
     @field_validator("imei")
     @classmethod
     def validar_imei(cls, v):
-        if v is None or v.strip() == "":
+        if v is None or (isinstance(v, str) and v.strip() == ""):
             return None
-        if not v.isdigit():
+        if not isinstance(v, str) or not v.isdigit():
             raise ValueError("El IMEI debe contener solo números")
         if len(v) != 15:
             raise ValueError("El IMEI debe tener exactamente 15 dígitos")
@@ -59,11 +61,11 @@ class EquipoBase(BaseModel):
     @field_validator("clave_bloqueo", mode="before")
     @classmethod
     def validar_clave_bloqueo(cls, v, info):
-        tipo = info.data.get("tipo_clave")
+        tipo = info.data.get("tipo_clave") if info and info.data else None
         if tipo == "PIN":
             if not v:
                 raise ValueError("La clave PIN es obligatoria")
-            if not v.isdigit() or len(v) < 4:
+            if not isinstance(v, str) or not v.isdigit() or len(v) < 4:
                 raise ValueError("El PIN debe ser numérico y mínimo 4 dígitos")
         return v
 
@@ -101,9 +103,9 @@ class EquipoUpdate(BaseModel):
     @field_validator("imei")
     @classmethod
     def validar_imei(cls, v):
-        if v is None or v.strip() == "":
+        if v is None or (isinstance(v, str) and v.strip() == ""):
             return None
-        if not v.isdigit():
+        if not isinstance(v, str) or not v.isdigit():
             raise ValueError("El IMEI debe contener solo números")
         if len(v) != 15:
             raise ValueError("El IMEI debe tener exactamente 15 dígitos")
@@ -116,30 +118,31 @@ class EquipoUpdate(BaseModel):
 class EquipoOut(BaseModel):
     id: int
 
-    cliente_nombre: str
-    cliente_numero: str
-    cliente_correo: Optional[str]
+    cliente_nombre: Optional[str] = None
+    cliente_numero: Optional[str] = None
+    cliente_correo: Optional[str] = None
 
-    marca: Optional[str]
-    modelo: str
-    fallo: str
-    observaciones: Optional[str]
+    marca: Optional[str] = None
+    modelo: Optional[str] = None
+    fallo: Optional[str] = None
+    observaciones: Optional[str] = None
 
-    tipo_clave: TipoClaveLiteral
-    clave_bloqueo: Optional[str]
+    tipo_clave: Optional[TipoClaveLiteral] = "NINGUNA"
+    clave_bloqueo: Optional[str] = None
 
-    articulos_entregados: List[str]
-    estado: EstadoEquipoLiteral
-    imei: Optional[str]
-    precio_estimado: Optional[float]
+    # defensas: si el ORM retorna None, devolvemos lista vacía
+    articulos_entregados: List[str] = Field(default_factory=list)
+    estado: Optional[EstadoEquipoLiteral] = "pendientes"
+    imei: Optional[str] = None
+    precio_estimado: Optional[float] = None
 
-    fecha_ingreso: Optional[datetime]
-    fecha_entrega: Optional[datetime]
+    fecha_ingreso: Optional[datetime] = None
+    fecha_entrega: Optional[datetime] = None
 
     qr_url: Optional[str] = None
     foto_url: Optional[str] = None
 
-    # 🔥 ESTA ES LA CLAVE PARA PYDANTIC V2 🔥
+    # 🔥 CLAVE PARA PYDANTIC V2
     model_config = {
         "from_attributes": True
     }
