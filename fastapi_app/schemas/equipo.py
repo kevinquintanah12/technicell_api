@@ -16,27 +16,42 @@ EstadoEquipoLiteral = Literal[
     "pendientes",
 ]
 
+# ============================
+# TIPO DE CLAVE
+# ============================
+TipoClaveLiteral = Literal[
+    "PIN",
+    "Patron",
+    "Contrasena",
+]
+
 
 # ============================
 # BASE
 # ============================
 class EquipoBase(BaseModel):
+    # -------- CLIENTE --------
     cliente_nombre: str = Field(..., min_length=1)
     cliente_numero: str = Field(..., min_length=8)
     cliente_correo: Optional[EmailStr] = None
 
+    # -------- EQUIPO --------
     marca: Optional[str] = None
     modelo: str = Field(..., min_length=1)
     fallo: str = Field(..., min_length=1)
     observaciones: Optional[str] = None
+
+    # -------- SEGURIDAD --------
+    tipo_clave: TipoClaveLiteral
     clave_bloqueo: Optional[str] = None
+
+    # -------- OTROS --------
     articulos_entregados: List[str] = Field(default_factory=list)
     estado: Optional[EstadoEquipoLiteral] = "pendientes"
     imei: Optional[str] = None
 
     @validator("imei")
     def validar_imei(cls, v):
-        # Permitir vacío o None
         if v is None or v.strip() == "":
             return None
 
@@ -60,15 +75,22 @@ class EquipoCreate(EquipoBase):
 # UPDATE
 # ============================
 class EquipoUpdate(BaseModel):
+    # -------- CLIENTE --------
     cliente_nombre: Optional[str] = None
     cliente_numero: Optional[str] = None
     cliente_correo: Optional[EmailStr] = None
 
+    # -------- EQUIPO --------
     marca: Optional[str] = None
     modelo: Optional[str] = None
     fallo: Optional[str] = None
     observaciones: Optional[str] = None
+
+    # -------- SEGURIDAD --------
+    tipo_clave: Optional[TipoClaveLiteral] = None
     clave_bloqueo: Optional[str] = None
+
+    # -------- OTROS --------
     articulos_entregados: Optional[List[str]] = None
     estado: Optional[EstadoEquipoLiteral] = None
     foto_url: Optional[str] = None
@@ -102,10 +124,15 @@ class EquipoOut(BaseModel):
     modelo: str
     fallo: str
     observaciones: Optional[str]
+
+    tipo_clave: TipoClaveLiteral
+    # ⚠️ recomendado NO exponer la clave, pero la dejo por compatibilidad
     clave_bloqueo: Optional[str]
+
     articulos_entregados: List[str]
     estado: EstadoEquipoLiteral
     imei: Optional[str]
+
     fecha_ingreso: Optional[datetime]
     foto_url: Optional[str] = None
 
@@ -120,12 +147,6 @@ class EquipoNotificar(BaseModel):
     """
     Schema exclusivo para notificar el estado de un equipo.
     Usado para correo / SMS / WhatsApp (según se implemente).
-
-    Ejemplo de body:
-    {
-        "via": ["email"],
-        "message": "Su equipo ha pasado a estado EN REPARACIÓN"
-    }
     """
     via: List[Literal["email", "phone"]]
     message: Optional[str] = None

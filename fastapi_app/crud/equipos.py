@@ -8,6 +8,7 @@ from models.equipo import Equipo
 from schemas.equipo import EquipoCreate, EquipoUpdate
 from crud.client import get_or_create_client
 
+
 # ==========================
 # ESTADOS VÁLIDOS
 # ==========================
@@ -20,6 +21,7 @@ VALID_ESTADOS = [
     "cancelado",
     "pendientes",
 ]
+
 
 # =====================================================
 # 🔹 Crear equipo (crea cliente si no existe)
@@ -35,16 +37,23 @@ def create_equipo(db: Session, payload: EquipoCreate) -> Equipo:
     estado = payload.estado if payload.estado in VALID_ESTADOS else "pendientes"
 
     db_equipo = Equipo(
+        # ---- CLIENTE ----
         cliente_id=cliente.id,
         cliente_nombre=cliente.nombre_completo,
         cliente_numero=cliente.telefono,
         cliente_correo=cliente.correo,
 
+        # ---- EQUIPO ----
         marca=payload.marca,
         modelo=payload.modelo,
         fallo=payload.fallo,
         observaciones=payload.observaciones,
+
+        # ---- SEGURIDAD ----
+        tipo_clave=payload.tipo_clave,
         clave_bloqueo=payload.clave_bloqueo,
+
+        # ---- OTROS ----
         articulos_entregados=payload.articulos_entregados or [],
         estado=estado,
         imei=payload.imei,
@@ -80,22 +89,33 @@ def list_equipos(
     stmt = select(Equipo).where(Equipo.archived == False)
 
     if cliente_nombre:
-        stmt = stmt.where(Equipo.cliente_nombre.ilike(f"%{cliente_nombre}%"))
+        stmt = stmt.where(
+            Equipo.cliente_nombre.ilike(f"%{cliente_nombre}%")
+        )
 
     if estado:
         if estado in VALID_ESTADOS:
             stmt = stmt.where(Equipo.estado == estado)
         else:
+            # estado inválido → no retorna nada
             stmt = stmt.where(Equipo.id == -1)
 
-    stmt = stmt.order_by(Equipo.fecha_ingreso.desc()).offset(skip).limit(limit)
+    stmt = (
+        stmt.order_by(Equipo.fecha_ingreso.desc())
+        .offset(skip)
+        .limit(limit)
+    )
+
     return list(db.execute(stmt).scalars())
 
 
 # =====================================================
 # 🔹 Buscar equipos activos por nombre de cliente
 # =====================================================
-def get_equipos_by_cliente_nombre(db: Session, nombre: str) -> List[Equipo]:
+def get_equipos_by_cliente_nombre(
+    db: Session, nombre: str
+) -> List[Equipo]:
+
     stmt = (
         select(Equipo)
         .where(
@@ -104,6 +124,7 @@ def get_equipos_by_cliente_nombre(db: Session, nombre: str) -> List[Equipo]:
         )
         .order_by(Equipo.fecha_ingreso.desc())
     )
+
     return list(db.execute(stmt).scalars())
 
 
@@ -111,7 +132,9 @@ def get_equipos_by_cliente_nombre(db: Session, nombre: str) -> List[Equipo]:
 # 🔹 Actualizar equipo
 # =====================================================
 def update_equipo(
-    db: Session, equipo_id: int, payload: EquipoUpdate
+    db: Session,
+    equipo_id: int,
+    payload: EquipoUpdate,
 ) -> Optional[Equipo]:
 
     equipo = db.get(Equipo, equipo_id)
@@ -129,7 +152,7 @@ def update_equipo(
 
 
 # =====================================================
-# 🔹 MARCAR EQUIPO COMO LISTO (🔥 CLAVE 🔥)
+# 🔹 Marcar equipo como LISTO (🔥 CLAVE 🔥)
 # =====================================================
 def marcar_equipo_listo(
     db: Session,
@@ -185,7 +208,12 @@ def delete_equipo(db: Session, equipo_id: int) -> bool:
 # =====================================================
 # 🔹 Guardar QR
 # =====================================================
-def set_equipo_qr(db: Session, equipo_id: int, qr_url: str) -> Optional[Equipo]:
+def set_equipo_qr(
+    db: Session,
+    equipo_id: int,
+    qr_url: str,
+) -> Optional[Equipo]:
+
     equipo = db.get(Equipo, equipo_id)
     if not equipo or equipo.archived:
         return None
@@ -197,9 +225,14 @@ def set_equipo_qr(db: Session, equipo_id: int, qr_url: str) -> Optional[Equipo]:
 
 
 # =====================================================
-# 🔹 Guardar foto
+# 🔹 Guardar foto (URL simple)
 # =====================================================
-def set_equipo_foto(db: Session, equipo_id: int, foto_url: str) -> Optional[Equipo]:
+def set_equipo_foto(
+    db: Session,
+    equipo_id: int,
+    foto_url: str,
+) -> Optional[Equipo]:
+
     equipo = db.get(Equipo, equipo_id)
     if not equipo or equipo.archived:
         return None
@@ -224,10 +257,12 @@ def get_last_equipo(db: Session) -> Optional[Equipo]:
 
 
 # =====================================================
-# 🔹 Guardar JSON (front + back)
+# 🔹 Guardar JSON de fotos (front + back)
 # =====================================================
 def set_equipo_foto_json(
-    db: Session, equipo_id: int, fotos_json: str
+    db: Session,
+    equipo_id: int,
+    fotos_json: str,
 ) -> Optional[Equipo]:
 
     equipo = db.get(Equipo, equipo_id)
@@ -240,6 +275,7 @@ def set_equipo_foto_json(
             raise ValueError("JSON inválido")
         equipo.foto_url = json.dumps(parsed)
     except Exception:
+        # fallback: guardar texto plano
         equipo.foto_url = fotos_json
 
     db.commit()

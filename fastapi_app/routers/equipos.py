@@ -7,8 +7,8 @@ Router completo para /equipos con:
 - notificaciones por email
 - endpoints para decodificar QR (archivo multipart y base64)
 
-Requiere: pillow, opencv-python-headless, qrcode
-(opencv-python-headless evita dependencias del sistema en Render)
+Requiere:
+pip install pillow opencv-python-headless qrcode
 """
 
 import uuid
@@ -36,9 +36,8 @@ from fastapi import (
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-# Ajusta estas importaciones a la estructura de tu proyecto
-from services.email_equipo import enviar_email_reparacion
 from database import SessionLocal, engine, Base
+from services.email_equipo import enviar_email_reparacion
 from schemas.equipo import (
     EquipoCreate,
     EquipoUpdate,
@@ -47,16 +46,19 @@ from schemas.equipo import (
 )
 from crud import equipos as crud_equipos
 
-# crea tablas si no existen (ajusta si ya lo haces en otro lado)
+# ==========================
+# CREAR TABLAS (solo si no lo haces en otro lado)
+# ==========================
 Base.metadata.create_all(bind=engine)
 
 router = APIRouter(prefix="/equipos", tags=["Equipos"])
 
 # =====================================================
-# 📂 CARPETAS
+# 📂 DIRECTORIOS
 # =====================================================
 UPLOAD_DIR = Path("static/uploads/equipos")
 QR_DIR = Path("static/qrs/equipos")
+
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 QR_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -83,84 +85,47 @@ def absolute_url(request: Request, relative_path: str) -> str:
 MAX_UPLOAD_SIZE = 5 * 1024 * 1024  # 5 MB
 
 # =====================================================
-# 🔧 Helpers para OpenCV
+# 🔧 OpenCV QR
 # =====================================================
 _detector = cv2.QRCodeDetector()
 
 
 def pil_to_cv2_bgr(pil_image: Image.Image) -> np.ndarray:
-    """Convierte PIL Image -> OpenCV BGR numpy array"""
     rgb = np.array(pil_image.convert("RGB"))
-    # PIL usa RGB, OpenCV suele usar BGR
     return rgb[:, :, ::-1].copy()
 
 
-# =====================================================
-# 🧩 UTIL: Intenta decodificar QR con transformaciones (OpenCV)
-# =====================================================
 def try_decode_qr(pil_image: Image.Image) -> Optional[str]:
-    """
-    Intenta decodificar QR usando varias transformaciones:
-    - imagen original
-    - grayscale
-    - autocontrast
-    - rotaciones 90/180/270
-    Retorna el primer texto encontrado o None.
-    """
     candidates: List[Image.Image] = []
 
-    # versión base
     try:
         candidates.append(pil_image.convert("RGB"))
+        candidates.append(ImageOps.autocontrast(pil_image))
+        candidates.append(ImageOps.grayscale(pil_image))
     except Exception:
         pass
 
-    # grayscale + autocontrast
-    try:
-        g = ImageOps.grayscale(pil_image)
-        candidates.append(g)
-    except Exception:
-        pass
-
-    try:
-        ac = ImageOps.autocontrast(pil_image)
-        candidates.append(ac)
-    except Exception:
-        pass
-
-    # rotaciones (aplicar a la imagen base y a autocontrast si existe)
-    base_images = [candidates[0]] if candidates else []
-    if len(candidates) > 1:
-        base_images.extend([img for img in candidates[1:]])
-
-    for base_img in base_images:
-        for rot in (0, 90, 180, 270):
+    for base_img in candidates[:]:
+        for rot in (90, 180, 270):
             try:
-                if rot == 0:
-                    img = base_img
-                else:
-                    img = base_img.rotate(rot, expand=True)
-                candidates.append(img)
+                candidates.append(base_img.rotate(rot, expand=True))
             except Exception:
                 pass
 
-    # ahora intentar decodificar cada candidato usando OpenCV
     for img in candidates:
         try:
             cv_img = pil_to_cv2_bgr(img)
-            # detectAndDecode devuelve (data, points, straight_qrcode)
-            data, points, _ = _detector.detectAndDecode(cv_img)
-            if data and isinstance(data, str) and data.strip():
+            data, _, _ = _detector.detectAndDecode(cv_img)
+            if data and data.strip():
                 return data.strip()
         except Exception:
-            # ignorar y continuar con el siguiente intento
             continue
 
     return None
 
 
 # =====================================================
-# 🚀 CREAR EQUIPO (genera QR con el ID)
+# 🚀 CREAR EQUIPO + QR
 # =====================================================
 @router.post("/", response_model=EquipoOut, status_code=status.HTTP_201_CREATED)
 def crear_equipo(
@@ -172,26 +137,25 @@ def crear_equipo(
     if not equipo:
         raise HTTPException(status_code=400, detail="No se pudo crear el equipo")
 
-    # Genera QR que contiene SOLO el ID del equipo (string)
+    import qrcode
+
     qr_filename = f"{uuid.uuid4().hex}.png"
     qr_path = QR_DIR / qr_filename
-    # Guardar QR (usa qrcode simple)
-    import qrcode
 
     img_qr = qrcode.make(str(equipo.id))
     img_qr.save(qr_path)
 
     qr_url = absolute_url(request, f"/static/qrs/equipos/{qr_filename}")
 
-    # Guarda la URL del QR en el equipo y devuelve el equipo actualizado
     updated = crud_equipos.set_equipo_qr(db, equipo.id, qr_url)
     if not updated:
-        raise HTTPException(status_code=500, detail="No se pudo guardar el QR en la BD")
+        raise HTTPException(status_code=500, detail="No se pudo guardar QR")
+
     return updated
 
 
 # =====================================================
-# 🔍 LISTAR EQUIPOS (SOLO ACTIVOS)
+# 🔍 LISTAR EQUIPOS ACTIVOS
 # =====================================================
 @router.get("/", response_model=List[EquipoOut])
 def listar_equipos(
@@ -222,7 +186,7 @@ def equipos_pendientes(db: Session = Depends(get_db)):
 
 
 @router.get("/reparacion", response_model=List[EquipoOut])
-def equipos_en_reparacion(db: Session = Depends(get_db)):
+def equipos_reparacion(db: Session = Depends(get_db)):
     return crud_equipos.list_equipos(db, estado="en_reparacion")
 
 
@@ -236,50 +200,32 @@ async def subir_fotos_ultimo(
     back: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    # Validación simple de tipo
     for f in (front, back):
         if not f.content_type or not f.content_type.startswith("image/"):
-            raise HTTPException(status_code=400, detail="Ambos archivos deben ser imágenes")
-
-    saved_paths: List[Path] = []
+            raise HTTPException(status_code=400, detail="Archivos inválidos")
 
     try:
-        # front
-        ext_front = Path(front.filename).suffix.lower() or ".jpg"
-        name_front = f"{uuid.uuid4().hex}{ext_front}"
-        path_front = UPLOAD_DIR / name_front
-        with open(path_front, "wb") as fh:
-            fh.write(await front.read())
-        url_front = absolute_url(request, f"/static/uploads/equipos/{name_front}")
-        saved_paths.append(path_front)
+        def save_image(file: UploadFile) -> str:
+            ext = Path(file.filename).suffix or ".jpg"
+            name = f"{uuid.uuid4().hex}{ext}"
+            path = UPLOAD_DIR / name
+            with open(path, "wb") as fh:
+                fh.write(file.file.read())
+            return absolute_url(request, f"/static/uploads/equipos/{name}")
 
-        # back
-        ext_back = Path(back.filename).suffix.lower() or ".jpg"
-        name_back = f"{uuid.uuid4().hex}{ext_back}"
-        path_back = UPLOAD_DIR / name_back
-        with open(path_back, "wb") as fh:
-            fh.write(await back.read())
-        url_back = absolute_url(request, f"/static/uploads/equipos/{name_back}")
-        saved_paths.append(path_back)
+        url_front = save_image(front)
+        url_back = save_image(back)
 
         ultimo = crud_equipos.get_last_equipo(db)
         if not ultimo:
-            # limpiezas locales
-            for p in saved_paths:
-                p.unlink(missing_ok=True)
-            raise HTTPException(status_code=404, detail="No hay equipos registrados")
+            raise HTTPException(status_code=404, detail="No hay equipos")
 
-        json_fotos = json.dumps({"front": url_front, "back": url_back})
-        updated = crud_equipos.set_equipo_foto_json(db, ultimo.id, json_fotos)
-        if not updated:
-            raise HTTPException(status_code=500, detail="No se pudo guardar las fotos")
+        fotos_json = json.dumps({"front": url_front, "back": url_back})
+        updated = crud_equipos.set_equipo_foto_json(db, ultimo.id, fotos_json)
+
         return updated
 
-    except HTTPException:
-        raise
     except Exception as e:
-        for p in saved_paths:
-            p.unlink(missing_ok=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -288,20 +234,13 @@ async def subir_fotos_ultimo(
 # =====================================================
 @router.patch("/{equipo_id}/reparando", response_model=EquipoOut)
 def marcar_reparando(equipo_id: int, db: Session = Depends(get_db)):
-    payload = EquipoUpdate(estado="en_reparacion")
-    obj = crud_equipos.update_equipo(db, equipo_id, payload)
-    if not obj:
-        raise HTTPException(status_code=404, detail="Equipo no encontrado")
-    return obj
+    return crud_equipos.update_equipo(
+        db, equipo_id, EquipoUpdate(estado="en_reparacion")
+    )
 
 
-# 🔥 MARCAR LISTO (ARCHIVA POR DEFECTO)
 @router.patch("/{equipo_id}/listo", response_model=EquipoOut)
 def marcar_listo(equipo_id: int, db: Session = Depends(get_db)):
-    """
-    Marca el equipo como LISTO y lo ARCHIVA para que
-    deje de aparecer en la lista principal
-    """
     obj = crud_equipos.marcar_equipo_listo(db, equipo_id)
     if not obj:
         raise HTTPException(status_code=404, detail="Equipo no encontrado")
@@ -317,9 +256,9 @@ def cancelar_equipo(equipo_id: int, db: Session = Depends(get_db)):
 
 
 # =====================================================
-# 📣 NOTIFICAR CLIENTE
+# 📣 NOTIFICACIONES
 # =====================================================
-@router.post("/{equipo_id}/notificar", status_code=status.HTTP_200_OK)
+@router.post("/{equipo_id}/notificar")
 def notificar_equipo(
     equipo_id: int,
     payload: EquipoNotificar,
@@ -329,56 +268,33 @@ def notificar_equipo(
     if not equipo:
         raise HTTPException(status_code=404, detail="Equipo no encontrado")
 
-    enviados = []
-
     if "email" in payload.via:
         if not equipo.cliente_correo:
-            raise HTTPException(
-                status_code=400,
-                detail="El equipo no tiene correo registrado",
-            )
+            raise HTTPException(status_code=400, detail="No hay correo")
 
-        try:
-            enviar_email_reparacion(
-                to_email=equipo.cliente_correo,
-                cliente_nombre=equipo.cliente_nombre,
-                ticket_id=str(equipo.id),
-                modelo=equipo.modelo,
-                falla=equipo.fallo,
-                message_from_front=payload.message,
-            )
-        except Exception as e:
-            # registra el error y responde 500
-            print("❌ ERROR enviando correo:", e)
-            raise HTTPException(
-                status_code=500,
-                detail=f"Error enviando correo: {str(e)}"
-            )
+        enviar_email_reparacion(
+            to_email=equipo.cliente_correo,
+            cliente_nombre=equipo.cliente_nombre,
+            ticket_id=str(equipo.id),
+            modelo=equipo.modelo,
+            falla=equipo.fallo,
+            message_from_front=payload.message,
+        )
 
-        enviados.append("email")
-
-    return {
-        "equipo_id": equipo.id,
-        "estado": equipo.estado,
-        "notificado_via": enviados,
-        "message": payload.message,
-    }
+    return {"ok": True, "equipo_id": equipo.id}
 
 
 # =====================================================
-# 🔍 OBTENER POR ID (INCLUYE ARCHIVADOS)
+# 🔍 OBTENER / ACTUALIZAR / ELIMINAR
 # =====================================================
 @router.get("/{equipo_id}", response_model=EquipoOut)
 def obtener_equipo(equipo_id: int, db: Session = Depends(get_db)):
     obj = crud_equipos.get_equipo(db, equipo_id)
     if not obj:
-        raise HTTPException(status_code=404, detail="Equipo no encontrado")
+        raise HTTPException(status_code=404)
     return obj
 
 
-# =====================================================
-# ✏️ ACTUALIZAR
-# =====================================================
 @router.patch("/{equipo_id}", response_model=EquipoOut)
 def actualizar_equipo(
     equipo_id: int,
@@ -387,107 +303,11 @@ def actualizar_equipo(
 ):
     obj = crud_equipos.update_equipo(db, equipo_id, payload)
     if not obj:
-        raise HTTPException(status_code=404, detail="Equipo no encontrado")
+        raise HTTPException(status_code=404)
     return obj
 
 
-# =====================================================
-# 🗑️ ELIMINAR (BORRADO LÓGICO)
-# =====================================================
-@router.delete("/{equipo_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{equipo_id}", status_code=204)
 def eliminar_equipo(equipo_id: int, db: Session = Depends(get_db)):
-    ok = crud_equipos.delete_equipo(db, equipo_id)
-    if not ok:
-        raise HTTPException(status_code=404, detail="Equipo no encontrado")
-    return None
-
-
-# =====================================================
-# 📷 LEER QR DESDE IMAGEN Y DEVOLVER EQUIPO (multipart/form-data)
-# =====================================================
-@router.post("/qr/decode", response_model=EquipoOut)
-async def decode_qr_and_get_equipo(
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db),
-):
-    """
-    Recibe una imagen (multipart/form-data) con un QR.
-    El QR debe contener únicamente el ID numérico del equipo.
-    Devuelve el Equipo correspondiente (o 404 si no existe/no se detecta QR).
-    """
-    # Validaciones básicas
-    if not file.content_type or not file.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="Archivo no es una imagen")
-
-    file_bytes = await file.read()
-    if len(file_bytes) > MAX_UPLOAD_SIZE:
-        raise HTTPException(status_code=413, detail="Archivo demasiado grande (máx 5MB)")
-
-    try:
-        # Abrir imagen con PIL de forma segura
-        image = Image.open(io.BytesIO(file_bytes)).convert("RGB")
-
-        qr_text = try_decode_qr(image)
-        if not qr_text:
-            raise HTTPException(status_code=404, detail="No se encontró QR en la imagen")
-
-        # Validación: esperamos un ID numérico
-        if not qr_text.isdigit():
-            raise HTTPException(status_code=400, detail="El QR no contiene un ID de equipo válido")
-
-        equipo_id = int(qr_text)
-        equipo = crud_equipos.get_equipo(db, equipo_id)
-        if not equipo:
-            raise HTTPException(status_code=404, detail="Equipo no encontrado")
-
-        return equipo
-
-    except HTTPException:
-        # re-lanzar HTTPException sin envolverla
-        raise
-    except Exception as e:
-        # En desarrollo puedes retornar str(e). En producción usa mensaje genérico.
-        raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
-
-
-# =====================================================
-# 📷 LEER QR DESDE BASE64 (JSON)
-# =====================================================
-class ImageBase64Payload(BaseModel):
-    image_base64: str  # data:image/png;base64,...
-
-
-@router.post("/qr/decode_base64", response_model=EquipoOut)
-def decode_qr_base64(payload: ImageBase64Payload, db: Session = Depends(get_db)):
-    """
-    Recibe JSON con image_base64 y devuelve el equipo.
-    Útil para clientes web/móvil que envían la imagen como base64.
-    """
-    try:
-        data = payload.image_base64
-        # eliminar header si lo trae: data:image/png;base64,AAA...
-        if "," in data:
-            _, data = data.split(",", 1)
-        file_bytes = base64.b64decode(data)
-        if len(file_bytes) > MAX_UPLOAD_SIZE:
-            raise HTTPException(status_code=413, detail="Archivo demasiado grande (máx 5MB)")
-
-        image = Image.open(io.BytesIO(file_bytes)).convert("RGB")
-
-        qr_text = try_decode_qr(image)
-        if not qr_text:
-            raise HTTPException(status_code=404, detail="No se encontró QR en la imagen")
-
-        if not qr_text.isdigit():
-            raise HTTPException(status_code=400, detail="El QR no contiene un ID de equipo válido")
-
-        equipo_id = int(qr_text)
-        equipo = crud_equipos.get_equipo(db, equipo_id)
-        if not equipo:
-            raise HTTPException(status_code=404, detail="Equipo no encontrado")
-        return equipo
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    if not crud_equipos.delete_equipo(db, equipo_id):
+        raise HTTPException(status_code=404)
