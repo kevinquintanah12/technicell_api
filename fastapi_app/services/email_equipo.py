@@ -1,80 +1,49 @@
 # services/email_equipo.py
 """
-Servicio de envío de correo para Technicell.
-Este archivo contiene la configuración SMTP **en el mismo archivo** para facilitar pruebas locales.
-**ADVERTENCIA:** NO dejes contraseñas aquí en producción ni las subas a GitHub.
-Puedes sobrescribir estas variables con variables de entorno si lo prefieres.
+Envío de correo para Technicell usando Resend (preferido) y fallback SMTP local.
+NO guardes claves en este archivo en producción; usa variables de entorno.
 """
 
 import os
-import smtplib
 import logging
 from typing import Optional
-from email.message import EmailMessage
 from html import escape
+
+import requests
 
 logger = logging.getLogger("email_equipo")
 logger.setLevel(logging.DEBUG)  # Cambia a INFO en producción
 
 # ============================
-# === CONFIGURACIÓN SMTP ====
+# === CONFIG (leer desde ENV) ===
 # ============================
-# EDITA ESTAS VARIABLES AQUÍ (solo para pruebas locales).
-# En producción, usa variables de entorno y remueve los secrets del código.
-SMTP_HOST = "smtp.gmail.com"                    # ej. smtp.gmail.com
-SMTP_PORT = 465                                 # 465 para SSL, 587 para STARTTLS
-SMTP_USER = "technicellreparaciones@gmail.com"      # tu usuario SMTP (email)
-SMTP_PASSWORD = "pgpk ydyj fgfp njut"          # <-- CAMBIALO por tu app password (NO subir a git)
-SMTP_FROM = "Technicell <technicellreparaciones@gmail.com>"  # valor visible en From
-SMTP_USE_SSL = True                             # True -> SMTP_SSL (puerto 465). False -> STARTTLS (puerto 587)
+SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "465"))
+SMTP_USER = os.environ.get("SMTP_USER", "")
+SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
+SMTP_FROM = os.environ.get("SMTP_FROM", SMTP_USER or "Technicell <no-reply@technicell.local>")
+SMTP_USE_SSL = str(os.environ.get("SMTP_USE_SSL", "1")).lower() in ("1", "true", "yes")
 
-# ============================
-# === OVERRIDE POR ENV VARS ==
-# ============================
-# Si quieres mantener variables en este archivo pero permitir override por env vars
-# (útil para staging/producción), descomenta las líneas siguientes o déjalas activas:
-SMTP_HOST = os.environ.get("SMTP_HOST", SMTP_HOST)
-SMTP_PORT = int(os.environ.get("SMTP_PORT", SMTP_PORT))
-SMTP_USER = os.environ.get("SMTP_USER", SMTP_USER)
-SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", SMTP_PASSWORD)
-SMTP_FROM = os.environ.get("SMTP_FROM", SMTP_FROM)
-SMTP_USE_SSL = str(os.environ.get("SMTP_USE_SSL", str(int(SMTP_USE_SSL)))).lower() in ("1", "true", "yes")
+# Resend API key — **DEBE** venir desde variable de entorno RESEND_API_KEY
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")  # Ej: re_xxx...
 
-# ============================
-# === FUNCIONES PRINCIPALES ==
-# ============================
+# Timeout para conexiones HTTP/SMTP
+DEFAULT_TIMEOUT = int(os.environ.get("EMAIL_TIMEOUT", "30"))
+
+
 def _safe_escape(text: Optional[str]) -> str:
     return escape(text or "")
 
 
-def enviar_email_reparacion(
-    to_email: str,
-    cliente_nombre: str,
-    ticket_id: str,
-    modelo: str,
-    falla: str,
-    message_from_front: Optional[str] = None,
-    timeout: int = 30,
-) -> None:
-    """
-    Envía un correo HTML notificando que el equipo entró a reparación.
-    Lanza RuntimeError en caso de fallo para que el router capture y devuelva HTTP 500.
-
-    Parámetros:
-      - to_email: destinatario
-      - cliente_nombre, ticket_id, modelo, falla: datos para el cuerpo
-      - message_from_front: mensaje opcional desde el frontend
-      - timeout: segundos de timeout para conexión SMTP
-    """
-
-    # Sanitizar entradas
+def _build_messages(cliente_nombre: str, ticket_id: str, modelo: str, falla: str, message_from_front: Optional[str]):
     cliente_nombre_safe = _safe_escape(cliente_nombre or "Cliente")
     ticket_id_safe = _safe_escape(str(ticket_id))
     modelo_safe = _safe_escape(modelo or "")
     falla_safe = _safe_escape(falla or "")
     mensaje_custom = _safe_escape(message_from_front or "")
 
-    # Construir body HTML y text
+    subject = "Technicell — Su equipo ha entrado en reparación"
+
     mensaje_html = ""
     if mensaje_custom:
         mensaje_html = (
@@ -83,8 +52,6 @@ def enviar_email_reparacion(
             f"<div class='value' style='font-weight:500;color:#333'>{mensaje_custom}</div>"
             "</div>"
         )
-
-    subject = "Technicell — Su equipo ha entrado en reparación"
 
     body_html = f"""<!doctype html>
 <html lang="es">
@@ -131,8 +98,48 @@ Falla reportada: {falla_safe}
 Gracias,
 Technicell
 """
+    return subject, body_html, body_text
 
-    # Construir mensaje MIME
+
+# -------------------------
+# Envío por Resend (API HTTP)
+# -------------------------
+def _send_via_resend(to_email: str, subject: str, body_html: str, body_text: str) -> None:
+    if not RESEND_API_KEY:
+        raise RuntimeError("RESEND_API_KEY no está configurada")
+
+    url = "https://api.resend.com/emails"
+    headers = {
+        "Authorization": f"Bearer {RESEND_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+    payload = {
+        "from": SMTP_FROM,
+        "to": to_email,
+        "subject": subject,
+        "html": body_html,
+        "text": body_text,
+    }
+
+    try:
+        resp = requests.post(url, headers=headers, json=payload, timeout=DEFAULT_TIMEOUT)
+        if not (200 <= resp.status_code < 300):
+            logger.error("Resend API error: %s %s", resp.status_code, resp.text)
+            raise RuntimeError(f"Resend API error: {resp.status_code} - {resp.text}")
+        logger.info("Correo enviado via Resend a %s (status %s)", to_email, resp.status_code)
+    except requests.RequestException as exc:
+        logger.exception("Error comunicándose con Resend API: %s", exc)
+        raise RuntimeError(f"Error comunicándose con Resend API: {exc}") from exc
+
+
+# -------------------------
+# Fallback: Envío por SMTP (solo si RESEND no configurado)
+# -------------------------
+def _send_via_smtp(to_email: str, subject: str, body_html: str, body_text: str) -> None:
+    import smtplib
+    from email.message import EmailMessage
+
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = SMTP_FROM
@@ -140,37 +147,58 @@ Technicell
     msg.set_content(body_text)
     msg.add_alternative(body_html, subtype="html")
 
-    # Intentar enviar y propagar excepciones si hay fallo
     try:
         if SMTP_USE_SSL:
-            logger.debug("Envío de correo: usando SMTP_SSL (%s:%s)", SMTP_HOST, SMTP_PORT)
-            with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=timeout) as server:
+            logger.debug("Envío SMTP usando SSL %s:%s", SMTP_HOST, SMTP_PORT)
+            with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=DEFAULT_TIMEOUT) as server:
                 if SMTP_USER and SMTP_PASSWORD:
                     server.login(SMTP_USER, SMTP_PASSWORD)
                 server.send_message(msg)
         else:
-            logger.debug("Envío de correo: usando STARTTLS (%s:%s)", SMTP_HOST, SMTP_PORT)
-            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=timeout) as server:
+            logger.debug("Envío SMTP usando STARTTLS %s:%s", SMTP_HOST, SMTP_PORT)
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=DEFAULT_TIMEOUT) as server:
                 server.ehlo()
                 server.starttls()
                 server.ehlo()
                 if SMTP_USER and SMTP_PASSWORD:
                     server.login(SMTP_USER, SMTP_PASSWORD)
                 server.send_message(msg)
-
-        logger.info("Correo enviado a %s (ticket %s)", to_email, ticket_id)
+        logger.info("Correo enviado via SMTP a %s", to_email)
     except Exception as exc:
-        # Loggear con stacktrace para debug y luego lanzar error controlado
-        logger.exception("Error al enviar correo via SMTP: %s", exc)
-        # Lanzar RuntimeError para que el router lo convierta a HTTPException y lo veas en Postman
-        raise RuntimeError(f"Error al enviar el correo: {exc}") from exc
+        logger.exception("Error al enviar por SMTP: %s", exc)
+        raise RuntimeError(f"Error al enviar por SMTP: {exc}") from exc
+
+
+# -------------------------
+# Función pública principal
+# -------------------------
+def enviar_email_reparacion(
+    to_email: str,
+    cliente_nombre: str,
+    ticket_id: str,
+    modelo: str,
+    falla: str,
+    message_from_front: Optional[str] = None,
+) -> None:
+    subject, body_html, body_text = _build_messages(cliente_nombre, ticket_id, modelo, falla, message_from_front)
+
+    # Preferir Resend (API) en producción/Render
+    if RESEND_API_KEY:
+        logger.debug("Usando Resend API para enviar correo a %s", to_email)
+        _send_via_resend(to_email=to_email, subject=subject, body_html=body_html, body_text=body_text)
+        return
+
+    # Fallback SMTP (local)
+    logger.debug("RESEND_API_KEY no configurada — intentando envío por SMTP (fallback)")
+    if not SMTP_HOST:
+        raise RuntimeError("No hay método de envío configurado (ni RESEND_API_KEY ni SMTP_HOST)")
+    _send_via_smtp(to_email=to_email, subject=subject, body_html=body_html, body_text=body_text)
 
 
 # ============================
 # === Helper de prueba ===
 # ============================
 def test_send():
-    """Función de prueba local. Ejecutar solo en entorno de desarrollo."""
     try:
         enviar_email_reparacion(
             to_email=os.environ.get("TEST_EMAIL", "tu_correo_de_prueba@ejemplo.com"),
@@ -178,7 +206,7 @@ def test_send():
             ticket_id="TEST-123",
             modelo="iPhone X",
             falla="Test de envío",
-            message_from_front="Mensaje de prueba desde test_send()"
+            message_from_front="Mensaje de prueba desde test_send()",
         )
         print("Envío de prueba: OK")
     except Exception as e:
@@ -186,5 +214,4 @@ def test_send():
 
 
 if __name__ == "__main__":
-    # Ejecutar test rápido si corres este file directamente (local only)
     test_send()
