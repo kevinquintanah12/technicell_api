@@ -1,7 +1,8 @@
 # services/email_equipo.py
 """
-Envío de correo para Technicell usando Resend (preferido) y fallback SMTP local.
-NO guardes claves en este archivo en producción; usa variables de entorno.
+Envío de correo para Technicell usando Resend (recomendado).
+Usa RESEND_API_KEY en entorno; por defecto el FROM es onboarding@resend.dev
+Si RESEND_API_KEY no existe, intenta fallback SMTP (útil únicamente en local).
 """
 
 import os
@@ -12,22 +13,22 @@ from html import escape
 import requests
 
 logger = logging.getLogger("email_equipo")
-logger.setLevel(logging.DEBUG)  # Cambia a INFO en producción
+logger.setLevel(logging.INFO)  # INFO en prod, DEBUG si necesitas más detalle
 
-# ============================
-# === CONFIG (leer desde ENV) ===
-# ============================
-SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT = int(os.environ.get("SMTP_PORT", "465"))
+# -----------------------------
+# Configuración (leer desde ENV)
+# -----------------------------
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "").strip()
+# FROM por defecto: usar onboarding@resend.dev para pruebas sin verificar dominio
+FROM_EMAIL = os.environ.get("FROM_EMAIL", "Technicell <onboarding@resend.dev>")
+
+# Opcional: configuración SMTP solo para fallback local (no funciona en Render)
+SMTP_HOST = os.environ.get("SMTP_HOST", "")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "465")) if os.environ.get("SMTP_PORT") else None
 SMTP_USER = os.environ.get("SMTP_USER", "")
 SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
-SMTP_FROM = os.environ.get("SMTP_FROM", SMTP_USER or "Technicell <onboarding@resend.dev>")
 SMTP_USE_SSL = str(os.environ.get("SMTP_USE_SSL", "1")).lower() in ("1", "true", "yes")
 
-# Resend API key — **DEBE** venir desde variable de entorno RESEND_API_KEY
-RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")  # Ej: re_xxx...
-
-# Timeout para conexiones HTTP/SMTP
 DEFAULT_TIMEOUT = int(os.environ.get("EMAIL_TIMEOUT", "30"))
 
 
@@ -62,20 +63,14 @@ def _build_messages(cliente_nombre: str, ticket_id: str, modelo: str, falla: str
 <body style="background:#f4f4f6;padding:20px;font-family:Arial">
   <div style="max-width:680px;margin:auto;background:#fff;border-radius:8px;padding:20px">
     <h2 style="color:#6b46c1">Hola {cliente_nombre_safe} 👋</h2>
-
     <p>Su equipo <strong>{modelo_safe}</strong> ha cambiado al estado:</p>
-
     <h3 style="color:#fff;background:#6b46c1;display:inline-block;padding:8px 14px;border-radius:20px">
       EN REPARACIÓN
     </h3>
-
     <hr style="margin:20px 0">
-
     <p><strong>Ticket:</strong> #{ticket_id_safe}</p>
     <p><strong>Falla reportada:</strong><br>{falla_safe}</p>
-
     {mensaje_html}
-
     <p style="margin-top:20px">
       Gracias por su preferencia.<br>
       <strong>Technicell</strong><br>
@@ -115,7 +110,7 @@ def _send_via_resend(to_email: str, subject: str, body_html: str, body_text: str
     }
 
     payload = {
-        "from": SMTP_FROM,
+        "from": FROM_EMAIL,
         "to": to_email,
         "subject": subject,
         "html": body_html,
@@ -134,15 +129,18 @@ def _send_via_resend(to_email: str, subject: str, body_html: str, body_text: str
 
 
 # -------------------------
-# Fallback: Envío por SMTP (solo si RESEND no configurado)
+# Fallback: Envío por SMTP (solo si RESEND no configurado) - útil local
 # -------------------------
 def _send_via_smtp(to_email: str, subject: str, body_html: str, body_text: str) -> None:
     import smtplib
     from email.message import EmailMessage
 
+    if not SMTP_HOST:
+        raise RuntimeError("No hay configuración SMTP disponible para fallback.")
+
     msg = EmailMessage()
     msg["Subject"] = subject
-    msg["From"] = SMTP_FROM
+    msg["From"] = FROM_EMAIL
     msg["To"] = to_email
     msg.set_content(body_text)
     msg.add_alternative(body_html, subtype="html")
@@ -190,13 +188,11 @@ def enviar_email_reparacion(
 
     # Fallback SMTP (local)
     logger.debug("RESEND_API_KEY no configurada — intentando envío por SMTP (fallback)")
-    if not SMTP_HOST:
-        raise RuntimeError("No hay método de envío configurado (ni RESEND_API_KEY ni SMTP_HOST)")
     _send_via_smtp(to_email=to_email, subject=subject, body_html=body_html, body_text=body_text)
 
 
 # ============================
-# === Helper de prueba ===
+# Helper de prueba (solo desarrollo)
 # ============================
 def test_send():
     try:
@@ -215,14 +211,3 @@ def test_send():
 
 if __name__ == "__main__":
     test_send()
-
-# EDITA ESTAS VARIABLES AQUÍ (solo para pruebas locales).
-# En producción, usa variables de entorno y remueve los secrets del código.
-SMTP_HOST = "smtp.gmail.com"                    # ej. smtp.gmail.com
-SMTP_PORT = 465                                 # 465 para SSL, 587 para STARTTLS
-SMTP_USER = "technicellreparaciones@gmail.com"      # tu usuario SMTP (email)
-SMTP_PASSWORD = "pgpk ydyj fgfp njut"          # <-- CAMBIALO por tu app password (NO subir a git)
-SMTP_FROM = "Technicell <technicellreparaciones@gmail.com>"  # valor visible en From
-SMTP_USE_SSL = True                             # True -> SMTP_SSL (puerto 465). False -> STARTTLS (puerto 587)
-
-# ==========
