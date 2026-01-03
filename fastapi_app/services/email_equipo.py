@@ -21,7 +21,7 @@ SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "465"))
 SMTP_USER = os.environ.get("SMTP_USER", "")
 SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
-SMTP_FROM = os.environ.get("SMTP_FROM", SMTP_USER or "Technicell <no-reply@technicell.local>")
+SMTP_FROM = os.environ.get("SMTP_FROM", SMTP_USER or "Technicell <technicellreparaciones@gmail.com>")
 SMTP_USE_SSL = str(os.environ.get("SMTP_USE_SSL", "1")).lower() in ("1", "true", "yes")
 
 # Resend API key — **DEBE** venir desde variable de entorno RESEND_API_KEY
@@ -215,3 +215,14 @@ def test_send():
 
 if __name__ == "__main__":
     test_send()
+
+# EDITA ESTAS VARIABLES AQUÍ (solo para pruebas locales).
+# En producción, usa variables de entorno y remueve los secrets del código.
+SMTP_HOST = "smtp.gmail.com"                    # ej. smtp.gmail.com
+SMTP_PORT = 465                                 # 465 para SSL, 587 para STARTTLS
+SMTP_USER = "technicellreparaciones@gmail.com"      # tu usuario SMTP (email)
+SMTP_PASSWORD = "pgpk ydyj fgfp njut"          # <-- CAMBIALO por tu app password (NO subir a git)
+SMTP_FROM = "Technicell <technicellreparaciones@gmail.com>"  # valor visible en From
+SMTP_USE_SSL = True                             # True -> SMTP_SSL (puerto 465). False -> STARTTLS (puerto 587)
+
+# ==========
