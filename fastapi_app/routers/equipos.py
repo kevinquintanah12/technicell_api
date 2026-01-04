@@ -6,7 +6,7 @@ Router completo para /equipos con:
 - subir fotos al último equipo
 - notificaciones por email
 - endpoints para decodificar QR (archivo multipart y base64)
-- endpoint GET /equipos/{id}/qr para servir la imagen PNG del QR
+- endpoint GET /equipos/A{id}/qr para servir la imagen PNG del QR
 
 Requiere:
 pip install pillow opencv-python-headless qrcode

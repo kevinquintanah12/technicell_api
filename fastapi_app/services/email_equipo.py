@@ -1,14 +1,8 @@
 # services/email_equipo.py
 """
 Envío de correo vía SMTP (pensado para deploy en Railway u otro hosting que permita SMTP).
-Configura las variables de entorno en Railway:
-- FROM_EMAIL (ej: "Technicell <no-reply@tu-dominio.com>")
-- SMTP_HOST
-- SMTP_PORT (ej: 587 o 465)
-- SMTP_USER
-- SMTP_PASSWORD
-- SMTP_USE_SSL (opcional: "1"/"true" para usar SSL directo; por defecto se usa STARTTLS si puerto 587)
-- EMAIL_TIMEOUT (opcional, en segundos)
+- Para producción **usa variables de entorno** (Railway Environment variables).
+- Para pruebas locales puedes editar las constantes marcadas abajo (NO subir estas credenciales al repo).
 """
 
 import os
@@ -21,18 +15,47 @@ from email.message import EmailMessage
 logger = logging.getLogger("email_equipo")
 logger.setLevel(logging.INFO)
 
-# -----------------------------
-# Configuración desde ENV
-# -----------------------------
-FROM_EMAIL = os.environ.get("FROM_EMAIL", "Technicell <no-reply@example.com>")
-SMTP_HOST = os.environ.get("SMTP_HOST", "").strip()
-SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))  # default 587 (STARTTLS)
-SMTP_USER = os.environ.get("SMTP_USER", "").strip()
-SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "").strip()
-SMTP_USE_SSL = str(os.environ.get("SMTP_USE_SSL", "0")).lower() in ("1", "true", "yes")
-DEFAULT_TIMEOUT = int(os.environ.get("EMAIL_TIMEOUT", "30"))
+# -------------------------------------------------------
+# EDITA ESTAS VARIABLES AQUÍ (solo para pruebas locales).
+# En producción, REMUEVE/IGNORA estas credenciales y usa ENV VARS.
+# -------------------------------------------------------
+_LOCAL_SMTP_HOST = "smtp.gmail.com"                                 # ej. smtp.gmail.com
+_LOCAL_SMTP_PORT = 465                                              # 465 para SSL, 587 para STARTTLS
+_LOCAL_SMTP_USER = "technicellreparaciones@gmail.com"               # tu usuario SMTP (email)
+_LOCAL_SMTP_PASSWORD = "pgpk ydyj fgfp njut"                        # <-- CAMBIALO por tu app password (NO subir a git)
+_LOCAL_SMTP_FROM = "Technicell <technicellreparaciones@gmail.com>"  # valor visible en From
+_LOCAL_SMTP_USE_SSL = True                                          # True -> SMTP_SSL (puerto 465). False -> STARTTLS (puerto 587)
+_LOCAL_EMAIL_TIMEOUT = 30
+# -------------------------------------------------------
 
+# -----------------------------
+# Configuración desde ENV (sobrescribe los _LOCAL_ si existen)
+# -----------------------------
+# From: prefer FROM_EMAIL, si no existe, usar SMTP_FROM (compatibilidad)
+FROM_EMAIL = (
+    os.environ.get("FROM_EMAIL")
+    or os.environ.get("SMTP_FROM")
+    or _LOCAL_SMTP_FROM
+)
 
+SMTP_HOST = (os.environ.get("SMTP_HOST") or _LOCAL_SMTP_HOST).strip()
+# Puerto: si viene en ENV convierto a int, sino uso el local
+SMTP_PORT = int(os.environ.get("SMTP_PORT", str(_LOCAL_SMTP_PORT)))
+SMTP_USER = (os.environ.get("SMTP_USER") or _LOCAL_SMTP_USER).strip()
+SMTP_PASSWORD = (os.environ.get("SMTP_PASSWORD") or _LOCAL_SMTP_PASSWORD).strip()
+
+# SMTP_USE_SSL: si ENV existe y es "1"/"true" lo toma; si no, usa el local
+SMTP_USE_SSL = str(os.environ.get("SMTP_USE_SSL", str(int(_LOCAL_SMTP_USE_SSL)))).lower() in (
+    "1",
+    "true",
+    "yes",
+)
+
+DEFAULT_TIMEOUT = int(os.environ.get("EMAIL_TIMEOUT", str(_LOCAL_EMAIL_TIMEOUT)))
+
+# -------------------------
+# Resto del módulo (igual que antes)
+# -------------------------
 def _safe_escape(text: Optional[str]) -> str:
     return escape(text or "")
 
@@ -97,9 +120,6 @@ Technicell
     return subject, body_html, body_text
 
 
-# -------------------------
-# Envío vía SMTP (solo)
-# -------------------------
 def _send_via_smtp(
     to_emails: Union[str, Iterable[str]],
     subject: str,
@@ -153,9 +173,6 @@ def _send_via_smtp(
         raise RuntimeError(f"Error al enviar por SMTP: {exc}") from exc
 
 
-# -------------------------
-# Función pública principal
-# -------------------------
 def enviar_email_reparacion(
     to_email: Union[str, Iterable[str]],
     cliente_nombre: str,
