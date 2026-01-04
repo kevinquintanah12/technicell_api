@@ -1,34 +1,35 @@
 # services/email_equipo.py
 """
-Envío de correo para Technicell usando Resend (recomendado).
-Usa RESEND_API_KEY en entorno; por defecto el FROM es onboarding@resend.dev
-Si RESEND_API_KEY no existe, intenta fallback SMTP (útil únicamente en local).
+Envío de correo vía SMTP (pensado para deploy en Railway u otro hosting que permita SMTP).
+Configura las variables de entorno en Railway:
+- FROM_EMAIL (ej: "Technicell <no-reply@tu-dominio.com>")
+- SMTP_HOST
+- SMTP_PORT (ej: 587 o 465)
+- SMTP_USER
+- SMTP_PASSWORD
+- SMTP_USE_SSL (opcional: "1"/"true" para usar SSL directo; por defecto se usa STARTTLS si puerto 587)
+- EMAIL_TIMEOUT (opcional, en segundos)
 """
 
 import os
 import logging
-from typing import Optional
+from typing import Optional, Union, Iterable
 from html import escape
-
-import requests
+import ssl
+from email.message import EmailMessage
 
 logger = logging.getLogger("email_equipo")
-logger.setLevel(logging.INFO)  # INFO en prod, DEBUG si necesitas más detalle
+logger.setLevel(logging.INFO)
 
 # -----------------------------
-# Configuración (leer desde ENV)
+# Configuración desde ENV
 # -----------------------------
-RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "").strip()
-# FROM por defecto: usar onboarding@resend.dev para pruebas sin verificar dominio
-FROM_EMAIL = os.environ.get("FROM_EMAIL", "Technicell <onboarding@resend.dev>")
-
-# Opcional: configuración SMTP solo para fallback local (no funciona en Render)
-SMTP_HOST = os.environ.get("SMTP_HOST", "")
-SMTP_PORT = int(os.environ.get("SMTP_PORT", "465")) if os.environ.get("SMTP_PORT") else None
-SMTP_USER = os.environ.get("SMTP_USER", "")
-SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
-SMTP_USE_SSL = str(os.environ.get("SMTP_USE_SSL", "1")).lower() in ("1", "true", "yes")
-
+FROM_EMAIL = os.environ.get("FROM_EMAIL", "Technicell <no-reply@example.com>")
+SMTP_HOST = os.environ.get("SMTP_HOST", "").strip()
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))  # default 587 (STARTTLS)
+SMTP_USER = os.environ.get("SMTP_USER", "").strip()
+SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "").strip()
+SMTP_USE_SSL = str(os.environ.get("SMTP_USE_SSL", "0")).lower() in ("1", "true", "yes")
 DEFAULT_TIMEOUT = int(os.environ.get("EMAIL_TIMEOUT", "30"))
 
 
@@ -97,71 +98,56 @@ Technicell
 
 
 # -------------------------
-# Envío por Resend (API HTTP)
+# Envío vía SMTP (solo)
 # -------------------------
-def _send_via_resend(to_email: str, subject: str, body_html: str, body_text: str) -> None:
-    if not RESEND_API_KEY:
-        raise RuntimeError("RESEND_API_KEY no está configurada")
-
-    url = "https://api.resend.com/emails"
-    headers = {
-        "Authorization": f"Bearer {RESEND_API_KEY}",
-        "Content-Type": "application/json",
-    }
-
-    payload = {
-        "from": FROM_EMAIL,
-        "to": to_email,
-        "subject": subject,
-        "html": body_html,
-        "text": body_text,
-    }
-
-    try:
-        resp = requests.post(url, headers=headers, json=payload, timeout=DEFAULT_TIMEOUT)
-        if not (200 <= resp.status_code < 300):
-            logger.error("Resend API error: %s %s", resp.status_code, resp.text)
-            raise RuntimeError(f"Resend API error: {resp.status_code} - {resp.text}")
-        logger.info("Correo enviado via Resend a %s (status %s)", to_email, resp.status_code)
-    except requests.RequestException as exc:
-        logger.exception("Error comunicándose con Resend API: %s", exc)
-        raise RuntimeError(f"Error comunicándose con Resend API: {exc}") from exc
-
-
-# -------------------------
-# Fallback: Envío por SMTP (solo si RESEND no configurado) - útil local
-# -------------------------
-def _send_via_smtp(to_email: str, subject: str, body_html: str, body_text: str) -> None:
-    import smtplib
-    from email.message import EmailMessage
-
+def _send_via_smtp(
+    to_emails: Union[str, Iterable[str]],
+    subject: str,
+    body_html: str,
+    body_text: str,
+) -> None:
+    """Envía el email vía SMTP. to_emails puede ser string o iterables (lista/tuple)."""
     if not SMTP_HOST:
-        raise RuntimeError("No hay configuración SMTP disponible para fallback.")
+        raise RuntimeError("No hay configuración SMTP (SMTP_HOST) configurada en el entorno.")
+
+    # Normalizar destinatarios a lista
+    if isinstance(to_emails, str):
+        to_list = [to_emails]
+    else:
+        to_list = list(to_emails)
 
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = FROM_EMAIL
-    msg["To"] = to_email
+    msg["To"] = ", ".join(to_list)
     msg.set_content(body_text)
     msg.add_alternative(body_html, subtype="html")
 
     try:
-        if SMTP_USE_SSL:
-            logger.debug("Envío SMTP usando SSL %s:%s", SMTP_HOST, SMTP_PORT)
-            with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=DEFAULT_TIMEOUT) as server:
+        if SMTP_USE_SSL or SMTP_PORT == 465:
+            logger.debug("Conectando SMTP vía SSL a %s:%s", SMTP_HOST, SMTP_PORT)
+            context = ssl.create_default_context()
+            import smtplib
+
+            with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=DEFAULT_TIMEOUT, context=context) as server:
                 if SMTP_USER and SMTP_PASSWORD:
                     server.login(SMTP_USER, SMTP_PASSWORD)
                 server.send_message(msg)
         else:
-            logger.debug("Envío SMTP usando STARTTLS %s:%s", SMTP_HOST, SMTP_PORT)
+            # STARTTLS flow (puerto típico 587)
+            logger.debug("Conectando SMTP y usando STARTTLS a %s:%s", SMTP_HOST, SMTP_PORT)
+            import smtplib
+
             with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=DEFAULT_TIMEOUT) as server:
                 server.ehlo()
-                server.starttls()
+                context = ssl.create_default_context()
+                server.starttls(context=context)
                 server.ehlo()
                 if SMTP_USER and SMTP_PASSWORD:
                     server.login(SMTP_USER, SMTP_PASSWORD)
                 server.send_message(msg)
-        logger.info("Correo enviado via SMTP a %s", to_email)
+
+        logger.info("Correo enviado via SMTP a %s", to_list)
     except Exception as exc:
         logger.exception("Error al enviar por SMTP: %s", exc)
         raise RuntimeError(f"Error al enviar por SMTP: {exc}") from exc
@@ -171,7 +157,7 @@ def _send_via_smtp(to_email: str, subject: str, body_html: str, body_text: str) 
 # Función pública principal
 # -------------------------
 def enviar_email_reparacion(
-    to_email: str,
+    to_email: Union[str, Iterable[str]],
     cliente_nombre: str,
     ticket_id: str,
     modelo: str,
@@ -179,16 +165,8 @@ def enviar_email_reparacion(
     message_from_front: Optional[str] = None,
 ) -> None:
     subject, body_html, body_text = _build_messages(cliente_nombre, ticket_id, modelo, falla, message_from_front)
-
-    # Preferir Resend (API) en producción/Render
-    if RESEND_API_KEY:
-        logger.debug("Usando Resend API para enviar correo a %s", to_email)
-        _send_via_resend(to_email=to_email, subject=subject, body_html=body_html, body_text=body_text)
-        return
-
-    # Fallback SMTP (local)
-    logger.debug("RESEND_API_KEY no configurada — intentando envío por SMTP (fallback)")
-    _send_via_smtp(to_email=to_email, subject=subject, body_html=body_html, body_text=body_text)
+    logger.debug("Preparando envío SMTP a %s", to_email)
+    _send_via_smtp(to_emails=to_email, subject=subject, body_html=body_html, body_text=body_text)
 
 
 # ============================
