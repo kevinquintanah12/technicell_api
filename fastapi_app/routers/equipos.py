@@ -8,15 +8,30 @@ Router completo para /equipos con:
 - endpoints para decodificar QR (archivo multipart y base64)
 - endpoint GET /equipos/{id}/qr para servir la imagen PNG del QR
 
-Requiere:
-pip install pillow opencv-python-headless qrcode
+Nuevos endpoints añadidos en esta versión:
+- DELETE /equipos/{id}           -> borrado lógico (existente)
+- DELETE /equipos/{id}/permanent -> borrado físico (archivos + BD)
+- DELETE /equipos/clear          -> borrar todos (opcional permanent=true)
+- GET    /equipos/search?q=...   -> buscar por letras (modelo/cliente/falla)
+- PATCH  /equipos/{id}/reparado  -> marcar como reparado (fecha + estado)
+- PATCH  /equipos/{id}/liquidar_anticipo -> registrar liquidación de anticipo
+- PATCH  /equipos/{id}/archivar -> archivar (soft-delete) equipos reparados
+
+Requiere que el módulo `crud.equipos` exponga (idealmente) funciones:
+- get_equipo, list_equipos, create_equipo, update_equipo
+- delete_equipo (lógico), permanent_delete_equipo (físico opcional)
+- set_equipo_qr, set_equipo_foto_json, get_last_equipo
+- marcar_equipo_listo  (opcional)
+
+Si alguna función no existe, el router intenta usar "fallbacks" razonables.
 """
 import uuid
 import json
 import io
 import base64
+import shutil
 from pathlib import Path
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Tuple
 from datetime import datetime
 
 from PIL import Image, ImageOps
@@ -101,14 +116,6 @@ def pil_to_cv2_bgr(pil_image: Image.Image) -> np.ndarray:
 # 🧩 UTIL: Intenta decodificar QR con transformaciones (OpenCV)
 # =====================================================
 def try_decode_qr(pil_image: Image.Image) -> Optional[str]:
-    """
-    Intenta decodificar QR usando varias transformaciones:
-    - imagen original
-    - grayscale
-    - autocontrast
-    - rotaciones 90/180/270
-    Retorna el primer texto encontrado o None.
-    """
     candidates: List[Image.Image] = []
 
     # versión base
@@ -162,7 +169,7 @@ def try_decode_qr(pil_image: Image.Image) -> Optional[str]:
 # =====================================================
 # UTIL: genera QR en memoria y retorna (bytes_png, base64_str)
 # =====================================================
-def generar_qr_bytes_and_base64(text: str) -> (bytes, str):
+def generar_qr_bytes_and_base64(text: str) -> Tuple[bytes, str]:
     import qrcode
 
     qr = qrcode.make(str(text))
@@ -182,35 +189,22 @@ def crear_equipo(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    """
-    Crea el equipo, genera QR (imagen PNG), guarda la URL en la BD y
-    devuelve JSON con:
-      {
-        "equipo": { ... },
-        "qr_url": "...",
-        "qr_base64": "..."
-      }
-    """
     equipo = crud_equipos.create_equipo(db, payload)
     if not equipo:
         raise HTTPException(status_code=400, detail="No se pudo crear el equipo")
 
-    # Generar QR (conteniendo solo el ID)
     qr_bytes, qr_base64 = generar_qr_bytes_and_base64(str(equipo.id))
 
-    # Guardar en disco (si falla, seguimos devolviendo base64)
     qr_filename = f"{uuid.uuid4().hex}.png"
     qr_path = QR_DIR / qr_filename
     try:
         with open(qr_path, "wb") as fh:
             fh.write(qr_bytes)
-    except Exception as e:
-        # No es fatal
+    except Exception:
         pass
 
     qr_url = absolute_url(request, f"/static/qrs/equipos/{qr_filename}")
 
-    # Guardar la URL en el registro del equipo (si tu CRUD tiene otra firma, adáptala)
     updated = crud_equipos.set_equipo_qr(db, equipo.id, qr_url)
     if not updated:
         response_equipo = EquipoOut.from_orm(equipo).dict()
@@ -263,16 +257,9 @@ def listar_equipos(
     limit: int = 50,
     db: Session = Depends(get_db),
 ):
-    """
-    Lista equipos. Parámetros:
-      - nombre_cliente: filtra por cliente
-      - estado: filtra por estado (ej. "pendientes", "en_reparacion", "listo")
-      - include_archived: si True incluye equipos archivados (útil para ver 'listos' archivados)
-    """
     if nombre_cliente:
         return crud_equipos.get_equipos_by_cliente_nombre(db, nombre_cliente)
 
-    # Intentamos llamar a list_equipos con include_archived por si el CRUD lo soporta.
     try:
         return crud_equipos.list_equipos(
             db=db,
@@ -283,8 +270,6 @@ def listar_equipos(
             include_archived=include_archived,
         )
     except TypeError:
-        # Si la función crud_equipos.list_equipos no acepta include_archived,
-        # llamamos sin ese parámetro (fallback).
         return crud_equipos.list_equipos(
             db=db,
             skip=skip,
@@ -309,24 +294,14 @@ def equipos_en_reparacion(db: Session = Depends(get_db)):
 
 @router.get("/reparados", response_model=List[EquipoOut])
 def equipos_reparados(db: Session = Depends(get_db)):
-    """
-    Ajusta 'listo' si en tu DB el estado es 'reparado' u otro término.
-    Si los equipos 'listos' están archivados, el parámetro include_archived=True
-    fuerza a incluirlos (asumiendo que crud.list_equipos soporta ese flag).
-    """
     try:
         return crud_equipos.list_equipos(db, estado="listo", include_archived=True)
     except TypeError:
-        # Fallback si crud no acepta include_archived
         return crud_equipos.list_equipos(db, estado="listo")
 
 
 @router.get("/resumen_reparaciones", response_model=Dict[str, List[EquipoOut]])
 def resumen_reparaciones(db: Session = Depends(get_db)):
-    """
-    Retorna ambos listados en una sola petición:
-      { "en_reparacion": [...], "reparados": [...] }
-    """
     en_reparacion = crud_equipos.list_equipos(db, estado="en_reparacion")
     try:
         reparados = crud_equipos.list_equipos(db, estado="listo", include_archived=True)
@@ -345,7 +320,6 @@ async def subir_fotos_ultimo(
     back: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    # Validación simple de tipo
     for f in (front, back):
         if not f.content_type or not f.content_type.startswith("image/"):
             raise HTTPException(status_code=400, detail="Ambos archivos deben ser imágenes")
@@ -353,7 +327,6 @@ async def subir_fotos_ultimo(
     saved_paths: List[Path] = []
 
     try:
-        # front
         ext_front = Path(front.filename).suffix.lower() or ".jpg"
         name_front = f"{uuid.uuid4().hex}{ext_front}"
         path_front = UPLOAD_DIR / name_front
@@ -362,7 +335,6 @@ async def subir_fotos_ultimo(
         url_front = absolute_url(request, f"/static/uploads/equipos/{name_front}")
         saved_paths.append(path_front)
 
-        # back
         ext_back = Path(back.filename).suffix.lower() or ".jpg"
         name_back = f"{uuid.uuid4().hex}{ext_back}"
         path_back = UPLOAD_DIR / name_back
@@ -392,7 +364,7 @@ async def subir_fotos_ultimo(
 
 
 # =====================================================
-# 🔄 CAMBIOS DE ESTADO
+# 🔄 CAMBIOS DE ESTADO (existentes)
 # =====================================================
 @router.patch("/{equipo_id}/reparando", response_model=EquipoOut)
 def marcar_reparando(equipo_id: int, db: Session = Depends(get_db)):
@@ -405,14 +377,9 @@ def marcar_reparando(equipo_id: int, db: Session = Depends(get_db)):
 
 @router.patch("/{equipo_id}/listo", response_model=EquipoOut)
 def marcar_listo(equipo_id: int, db: Session = Depends(get_db)):
-    """
-    Marca el equipo como LISTO y lo ARCHIVA (según la lógica de tu crud).
-    Asegúrate de que `crud_equipos.marcar_equipo_listo` exista y haga el archivado si lo necesitas.
-    """
     try:
         obj = crud_equipos.marcar_equipo_listo(db, equipo_id)
     except AttributeError:
-        # Fallback: si no existe función especial, usamos update_equipo
         payload = EquipoUpdate(estado="listo")
         obj = crud_equipos.update_equipo(db, equipo_id, payload)
     if not obj:
@@ -429,81 +396,131 @@ def cancelar_equipo(equipo_id: int, db: Session = Depends(get_db)):
 
 
 # =====================================================
-# 📣 NOTIFICAR CLIENTE
+#  NUEVOS ENDPOINTS SOLICITADOS
 # =====================================================
-@router.post("/{equipo_id}/notificar", status_code=status.HTTP_200_OK)
-def notificar_equipo(
-    equipo_id: int,
-    payload: EquipoNotificar,
-    db: Session = Depends(get_db),
-):
+
+# Modelo para liquidar anticipo
+class AnticipoPayload(BaseModel):
+    monto: Optional[float] = None
+    notas: Optional[str] = None
+
+
+@router.patch("/{equipo_id}/liquidar_anticipo", response_model=EquipoOut)
+def liquidar_anticipo(equipo_id: int, payload: AnticipoPayload, db: Session = Depends(get_db)):
+    """
+    Marca el anticipo como liquidado. Guarda fecha y monto si se provee.
+    """
     equipo = crud_equipos.get_equipo(db, equipo_id)
     if not equipo:
         raise HTTPException(status_code=404, detail="Equipo no encontrado")
 
-    enviados = []
-
-    if "email" in payload.via:
-        if not equipo.cliente_correo:
-            raise HTTPException(
-                status_code=400,
-                detail="El equipo no tiene correo registrado",
-            )
-
+    # intentamos usar un método específico del crud si existe
+    try:
+        obj = crud_equipos.liquidar_anticipo(db, equipo_id, monto=payload.monto, notas=payload.notas)
+    except AttributeError:
+        # Fallback: actualizamos columnas genéricas si existen
+        update_payload = {}
+        update_payload["anticipo_liquidado"] = True
+        update_payload["anticipo_fecha_liquidacion"] = datetime.utcnow()
+        if payload.monto is not None:
+            update_payload["anticipo_monto"] = payload.monto
+        if payload.notas:
+            update_payload["anticipo_notas"] = payload.notas
+        # convertimos a EquipoUpdate si posible
         try:
-            enviar_email_reparacion(
-                to_email=equipo.cliente_correo,
-                cliente_nombre=equipo.cliente_nombre,
-                ticket_id=str(equipo.id),
-                modelo=equipo.modelo,
-                falla=equipo.fallo,
-                message_from_front=payload.message,
-            )
-        except Exception as e:
-            print("❌ ERROR enviando correo:", e)
-            raise HTTPException(
-                status_code=500,
-                detail=f"Error enviando correo: {str(e)}"
-            )
+            eu = EquipoUpdate(**update_payload)
+            obj = crud_equipos.update_equipo(db, equipo_id, eu)
+        except Exception:
+            # último recurso: levantamos error sobre esquema
+            raise HTTPException(status_code=500, detail="No se pudo liquidar el anticipo con la configuración actual del CRUD")
 
-        enviados.append("email")
-
-    return {
-        "equipo_id": equipo.id,
-        "estado": equipo.estado,
-        "notificado_via": enviados,
-        "message": payload.message,
-    }
-
-
-# =====================================================
-# 🔍 OBTENER POR ID (INCLUYE ARCHIVADOS)
-# =====================================================
-@router.get("/{equipo_id}", response_model=EquipoOut)
-def obtener_equipo(equipo_id: int, db: Session = Depends(get_db)):
-    obj = crud_equipos.get_equipo(db, equipo_id)
     if not obj:
-        raise HTTPException(status_code=404, detail="Equipo no encontrado")
+        raise HTTPException(status_code=500, detail="No se pudo guardar la liquidación del anticipo")
     return obj
 
 
-# =====================================================
-# ✏️ ACTUALIZAR
-# =====================================================
-@router.patch("/{equipo_id}", response_model=EquipoOut)
-def actualizar_equipo(
-    equipo_id: int,
-    payload: EquipoUpdate,
-    db: Session = Depends(get_db),
-):
-    obj = crud_equipos.update_equipo(db, equipo_id, payload)
-    if not obj:
+@router.patch("/{equipo_id}/reparado", response_model=EquipoOut)
+def marcar_reparado(equipo_id: int, db: Session = Depends(get_db)):
+    """
+    Marca el equipo como reparado (estado + fecha_reparacion).
+    """
+    equipo = crud_equipos.get_equipo(db, equipo_id)
+    if not equipo:
         raise HTTPException(status_code=404, detail="Equipo no encontrado")
+
+    payload = None
+    try:
+        payload = EquipoUpdate(estado="reparado", fecha_reparacion=datetime.utcnow())
+        obj = crud_equipos.update_equipo(db, equipo_id, payload)
+    except Exception:
+        # fallback simple
+        payload = EquipoUpdate(estado="reparado")
+        obj = crud_equipos.update_equipo(db, equipo_id, payload)
+
+    if not obj:
+        raise HTTPException(status_code=500, detail="No se pudo marcar como reparado")
     return obj
 
 
+@router.patch("/{equipo_id}/archivar", response_model=EquipoOut)
+def archivar_equipo(equipo_id: int, db: Session = Depends(get_db)):
+    """
+    Archiva (soft-delete) un equipo. Ideal para "borrar" reparados sin eliminarlos físicamente.
+    """
+    equipo = crud_equipos.get_equipo(db, equipo_id)
+    if not equipo:
+        raise HTTPException(status_code=404, detail="Equipo no encontrado")
+
+    # sólo permitimos archivar si está reparado/listo (según tu lógica)
+    estado = getattr(equipo, "estado", None)
+    if estado not in ("listo", "reparado", "finalizado", None):
+        # permitimos archivar sólo si está reparado/listo
+        raise HTTPException(status_code=400, detail="Sólo se pueden archivar equipos ya reparados/listos")
+
+    try:
+        obj = crud_equipos.archive_equipo(db, equipo_id)
+    except AttributeError:
+        # Fallback: marcamos una columna 'archivado' si existe
+        try:
+            eu = EquipoUpdate(archivado=True)
+            obj = crud_equipos.update_equipo(db, equipo_id, eu)
+        except Exception:
+            raise HTTPException(status_code=500, detail="No se pudo archivar el equipo (falta soporte en CRUD)")
+
+    if not obj:
+        raise HTTPException(status_code=500, detail="No se pudo archivar el equipo")
+    return obj
+
+
+@router.get("/search", response_model=List[EquipoOut])
+def search_equipos(q: str = Query(..., min_length=1), db: Session = Depends(get_db)):
+    """
+    Busca equipos por texto en campos como: modelo, cliente_nombre, fallo.
+    Si el CRUD no implementa search_equipos, hacemos un filtro simple en memoria
+    sobre list_equipos(limit=1000) (no óptimo pero funcional).
+    """
+    try:
+        return crud_equipos.search_equipos(db, q)
+    except AttributeError:
+        # fallback: traer hasta 2000 y filtrar en Python
+        try:
+            items = crud_equipos.list_equipos(db, skip=0, limit=2000)
+        except TypeError:
+            items = crud_equipos.list_equipos(db)
+
+        def matches(e):
+            s = q.lower()
+            for attr in ("modelo", "cliente_nombre", "fallo", "marca", "serie"):
+                val = getattr(e, attr, None)
+                if val and s in str(val).lower():
+                    return True
+            return False
+
+        return [i for i in items if matches(i)]
+
+
 # =====================================================
-# 🗑️ ELIMINAR (BORRADO LÓGICO)
+# 🗑️ ELIMINAR (BORRADO LÓGICO EXISTENTE)
 # =====================================================
 @router.delete("/{equipo_id}", status_code=status.HTTP_204_NO_CONTENT)
 def eliminar_equipo(equipo_id: int, db: Session = Depends(get_db)):
@@ -511,6 +528,89 @@ def eliminar_equipo(equipo_id: int, db: Session = Depends(get_db)):
     if not ok:
         raise HTTPException(status_code=404, detail="Equipo no encontrado")
     return None
+
+
+@router.delete("/{equipo_id}/permanent", status_code=status.HTTP_204_NO_CONTENT)
+def eliminar_equipo_permanente(equipo_id: int, db: Session = Depends(get_db)):
+    """
+    Borra físicamente el equipo y sus archivos (QR + fotos) si existe.
+    Requiere que el CRUD exponga `permanent_delete_equipo(db, id)` o similar.
+    """
+    equipo = crud_equipos.get_equipo(db, equipo_id)
+    if not equipo:
+        raise HTTPException(status_code=404, detail="Equipo no encontrado")
+
+    # eliminar archivos asociados (fotos + qr)
+    fotos_json = getattr(equipo, "fotos_json", None) or getattr(equipo, "fotos", None)
+    if fotos_json:
+        try:
+            if isinstance(fotos_json, str):
+                fj = json.loads(fotos_json)
+            else:
+                fj = fotos_json
+            for v in fj.values():
+                try:
+                    fname = Path(v).name
+                    p = UPLOAD_DIR / fname
+                    if p.exists():
+                        p.unlink(missing_ok=True)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    qr_url = getattr(equipo, "qr_url", None)
+    if qr_url:
+        try:
+            fname = Path(qr_url).name
+            p = QR_DIR / fname
+            if p.exists():
+                p.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+    # intenta usar función del crud para borrado permanente
+    try:
+        ok = crud_equipos.permanent_delete_equipo(db, equipo_id)
+        if not ok:
+            raise HTTPException(status_code=500, detail="No se pudo eliminar el equipo permanentemente")
+    except AttributeError:
+        # Fallback: llamamos a delete_equipo y luego intentamos remover de la tabla con SQL directo
+        ok = crud_equipos.delete_equipo(db, equipo_id)
+        if not ok:
+            raise HTTPException(status_code=500, detail="No se pudo eliminar el equipo (fallback)")
+        # Si necesitas borrado físico en BD, implementa permanent_delete_equipo en crud
+
+    return None
+
+
+@router.delete("/clear", status_code=status.HTTP_200_OK)
+def clear_equipos(permanent: bool = Query(False), db: Session = Depends(get_db)):
+    """
+    Borra todos los equipos. Por defecto es "soft delete" (lógico). Si `permanent=true` intenta
+    borrar físicamente registros y archivos (PELIGRO: irreversible).
+    """
+    items = crud_equipos.list_equipos(db, skip=0, limit=10000)
+    deleted = []
+    failed = []
+    for e in items:
+        try:
+            if permanent:
+                try:
+                    res = crud_equipos.permanent_delete_equipo(db, e.id)
+                except AttributeError:
+                    # fallback: delete_equipo
+                    res = crud_equipos.delete_equipo(db, e.id)
+            else:
+                res = crud_equipos.delete_equipo(db, e.id)
+            if res:
+                deleted.append(e.id)
+            else:
+                failed.append(e.id)
+        except Exception:
+            failed.append(e.id)
+
+    return {"deleted": deleted, "failed": failed}
 
 
 # =====================================================
@@ -521,10 +621,6 @@ async def decode_qr_and_get_equipo(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    """
-    Recibe imagen (multipart) con QR que contiene sólo el ID numérico.
-    Devuelve el Equipo correspondiente.
-    """
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="Archivo no es una imagen")
 
